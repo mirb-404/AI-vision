@@ -1,0 +1,9 @@
+# Core API dependencies. ONNX Runtime is installed separately so the CPU or
+# GPU build can be chosen (see Dockerfile ORT_PACKAGE / README).
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+sqlmodel>=0.0.22,<0.1
+python-multipart>=0.0.18
+numpy>=2.0,<3
+pillow>=11,<13
+opencv-python-headless>=4.10,<5

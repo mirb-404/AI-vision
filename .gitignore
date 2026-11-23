@@ -1,1 +1,24 @@
 AI_Vision
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# Runtime data (uploads, SQLite DB)
+data/
+
+# Model weights: downloaded/exported on the Linux machine, never committed
+models/weights/*
+models/checkpoints/
+!models/weights/.gitkeep
+*.onnx
+*.pt
+*.pth
+*.safetensors
+resume.txt

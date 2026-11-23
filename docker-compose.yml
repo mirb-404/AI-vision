@@ -1,0 +1,29 @@
+# One-command run:  docker compose up --build   ->  http://localhost:8080
+# Model weights are NOT downloaded here; put ONNX files in ./models/weights first
+# (see models/README.md). Without them the app runs and AI buttons show "unavailable".
+services:
+  api:
+    build:
+      context: ./backend
+      args:
+        ORT_PACKAGE: ${ORT_PACKAGE:-onnxruntime}
+    environment:
+      DATA_DIR: /data
+      MODELS_DIR: /models
+      SAM_VARIANT: ${SAM_VARIANT:-sam2}
+      SAM_ENCODER: ${SAM_ENCODER:-sam_encoder.onnx}
+      SAM_DECODER: ${SAM_DECODER:-sam_decoder.onnx}
+      YOLO_MODEL: ${YOLO_MODEL:-yolo.onnx}
+      ORT_PROVIDERS: ${ORT_PROVIDERS:-CPUExecutionProvider}
+    volumes:
+      - ./data:/data
+      - ./models/weights:/models:ro
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+    restart: unless-stopped

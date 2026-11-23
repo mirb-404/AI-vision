@@ -1,0 +1,13 @@
+# GPU override (needs NVIDIA Container Toolkit):
+#   ORT_PACKAGE=onnxruntime-gpu docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+services:
+  api:
+    environment:
+      ORT_PROVIDERS: CUDAExecutionProvider,CPUExecutionProvider
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

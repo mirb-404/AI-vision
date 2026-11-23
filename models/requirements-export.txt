@@ -1,0 +1,5 @@
+# Only for exporting weights to ONNX on the Linux machine. Not needed to run the app.
+ultralytics>=8.3
+samexporter>=0.4
+onnx>=1.16
+onnxruntime>=1.19
