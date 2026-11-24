@@ -7,14 +7,16 @@
 #   ./run.sh check [img]  smoke-test the exported models with the backend's inference code
 #   ./run.sh test         run the backend test suite
 #   ./run.sh datalab      full test on Datalab: setup, unit tests, model smoke test,
-#                         end-to-end HTTP check (throwaway data dir), then serve
-#                         (NO_SERVE=1 to stop after the checks)
+#                         end-to-end HTTP check (throwaway data dir), then serve with a
+#                         Cloudflare quick tunnel and print the public URL
+#                         (NO_SERVE=1 to stop after the checks, TUNNEL=0 for no tunnel)
 #
 # Every step is skipped when already done, so re-running is cheap.
 #
 # Environment overrides:
 #   PORT=8000             API / single-port UI
 #   HOST=127.0.0.1        bind address. Keep 127.0.0.1 behind Jupyter proxy / SSH tunnel: the app has no login.
+#   TUNNEL=1              also open a Cloudflare quick tunnel (public URL, default on for datalab)
 #   SKIP_MODELS=1         don't export model weights
 #   FORCE_CPU=1           use CPU onnxruntime even if a GPU is present
 #   YOLO_WEIGHTS=yolo26n.pt   SAM_MODEL=sam2.1_hiera_tiny
@@ -147,12 +149,69 @@ print_urls() {
   echo
 }
 
+# ---------------------------------------------------------------- cloudflare tunnel
+# Quick tunnel (no Cloudflare account): gives a random public https://*.trycloudflare.com URL.
+ensure_cloudflared() {
+  CLOUDFLARED="$(command -v cloudflared || echo "$HOME/.local/bin/cloudflared")"
+  [ -x "$CLOUDFLARED" ] && return
+  local arch
+  case "$(uname -m)" in
+    x86_64|amd64) arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) die "no cloudflared build for $(uname -m); install it manually" ;;
+  esac
+  log "Downloading cloudflared ($arch) to $CLOUDFLARED (user-local, no root)"
+  mkdir -p "$(dirname "$CLOUDFLARED")"
+  curl -fsSL -o "$CLOUDFLARED.part" \
+    "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}"
+  chmod +x "$CLOUDFLARED.part"
+  mv "$CLOUDFLARED.part" "$CLOUDFLARED"
+}
+
+start_tunnel() {
+  ensure_cloudflared
+  local logf url=""
+  logf="$(mktemp -t cloudflared.XXXXXX.log)"
+  log "Opening Cloudflare quick tunnel to 127.0.0.1:${PORT}"
+  "$CLOUDFLARED" tunnel --no-autoupdate --url "http://127.0.0.1:${PORT}" >"$logf" 2>&1 &
+  TUNNEL_PID=$!
+  for _ in $(seq 60); do
+    url="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$logf" | head -1 || true)"
+    [ -n "$url" ] && break
+    kill -0 "$TUNNEL_PID" 2>/dev/null || break
+    sleep 1
+  done
+  if [ -z "$url" ]; then
+    printf '\033[1;33mwarning:\033[0m tunnel URL not found; see %s. App still runs locally.\n' "$logf"
+    return
+  fi
+  echo
+  printf '  \033[1;32mPublic URL:  %s/\033[0m\n' "$url"
+  echo "  WARNING: the app has no login. Anyone with this URL can view and change data."
+  echo "           Stop with Ctrl+C when done; the URL changes every run. Log: $logf"
+  echo
+}
+
 serve() {
   build_frontend
   log "Starting AI Annotator (UI + API) on ${HOST}:${PORT}"
   print_urls "$PORT"
-  cd backend
-  exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT"
+  if [ "${TUNNEL:-0}" != 1 ]; then
+    cd backend
+    exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT"
+  fi
+  (cd backend && exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT") &
+  API_PID=$!
+  TUNNEL_PID=""
+  # Globals, not locals: the EXIT trap runs after this function's scope is gone.
+  trap 'kill "$API_PID" ${TUNNEL_PID:+"$TUNNEL_PID"} 2>/dev/null || true' EXIT INT TERM
+  for _ in $(seq 60); do
+    curl -fs "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1 && break
+    kill -0 "$API_PID" 2>/dev/null || die "server exited during startup"
+    sleep 1
+  done
+  start_tunnel
+  wait "$API_PID"
 }
 
 dev() {
@@ -213,7 +272,7 @@ datalab() {
 
   log "4/4 All checks passed"
   [ -n "${NO_SERVE:-}" ] && return
-  serve
+  TUNNEL="${TUNNEL:-1}" serve
 }
 
 check_python
@@ -224,5 +283,5 @@ case "$MODE" in
   check) setup_backend; check_models "${2:-}" ;;
   test)  setup_backend; (cd backend && .venv/bin/python -m pytest -q) ;;
   datalab) export_models; setup_backend; setup_frontend; datalab ;;
-  *)     sed -n '2,21p' "$0"; exit 1 ;;
+  *)     sed -n '2,22p' "$0"; exit 1 ;;
 esac
