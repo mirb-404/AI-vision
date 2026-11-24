@@ -32,7 +32,22 @@ def health():
     return {"status": "ok"}
 
 
+class UIFiles(StaticFiles):
+    """Static UI where index.html is always revalidated.
+
+    Assets have content-hashed names, but index.html does not: without this,
+    browsers (notably mobile Chrome) keep a stale index.html after a rebuild and
+    load the old bundle.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        if response.media_type == "text/html":
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Mounted last so /api routes take precedence. Not present in the docker api
 # image (nginx serves the UI there).
 if config.FRONTEND_DIST.is_dir():
-    app.mount("/", StaticFiles(directory=config.FRONTEND_DIST, html=True), name="ui")
+    app.mount("/", UIFiles(directory=config.FRONTEND_DIST, html=True), name="ui")

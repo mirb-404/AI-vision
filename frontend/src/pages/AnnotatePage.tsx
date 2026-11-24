@@ -324,10 +324,10 @@ export function AnnotatePage() {
 
   // ---- render -------------------------------------------------------------
   return (
-    <div className="flex h-screen flex-col bg-slate-950">
-      <header className="flex items-center gap-3 border-b border-slate-800 px-3 py-2 text-sm">
+    <div className="flex h-dvh flex-col bg-slate-950">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-slate-800 px-3 py-2 text-sm">
         <Link to={`/projects/${projectId}`} className="text-slate-400 hover:text-slate-100">← Project</Link>
-        <span className="truncate font-medium" title={image?.filename}>{image?.filename ?? '…'}</span>
+        <span className="min-w-0 max-w-[40vw] truncate font-medium md:max-w-none" title={image?.filename}>{image?.filename ?? '…'}</span>
         {image && (
           <span className={`rounded px-1.5 py-0.5 text-xs ${statusStyle[image.status]}`}>{image.status.replace('_', ' ')}</span>
         )}
@@ -338,7 +338,7 @@ export function AnnotatePage() {
                   disabled={index < 0 || index >= images.length - 1}>Next ›</button>
         </div>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex flex-wrap items-center gap-2 md:gap-3">
           <div className="flex rounded-md border border-slate-700 p-0.5 text-xs">
             {(['ai', 'manual'] as Mode[]).map((m) => (
               <button key={m} onClick={() => changeMode(m)}
@@ -361,12 +361,12 @@ export function AnnotatePage() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <Toolbar tool={tool} onTool={store.setTool} smartEnabled={samReady}
                  onUndo={store.undo} onRedo={store.redo}
                  canUndo={store.past.length > 0} canRedo={store.future.length > 0} />
 
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-h-[45dvh] min-w-0 flex-1 md:min-h-0">
           {image ? (
             <AnnotationCanvas
               imageUrl={api.imageUrl(image.id)}
@@ -383,7 +383,7 @@ export function AnnotatePage() {
                     hasPreview={!!store.smartPreview} onAccept={acceptSmart} onClear={store.clearSmart} />
         </div>
 
-        <aside className="w-80 shrink-0 space-y-4 overflow-y-auto border-l border-slate-800 p-3">
+        <aside className="max-h-[40dvh] w-full shrink-0 space-y-4 overflow-y-auto border-t border-slate-800 p-3 md:max-h-none md:w-80 md:border-l md:border-t-0">
           <section className="space-y-1.5">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Labels</h3>
             {labels.length === 0 && (

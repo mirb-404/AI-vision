@@ -1,7 +1,7 @@
 import type Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Circle, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
+import { Circle, Image as KImage, Label as KLabel, Layer, Line, Rect, Stage, Tag, Text, Transformer } from 'react-konva'
 import type { BoxGeom, Label, PolygonGeom } from '../api/types'
 import { effort } from '../lib/effort'
 import { clamp, normalizeBox } from '../lib/geometry'
@@ -93,19 +93,23 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
     return { x: clamp(p.x, 0, imageWidth), y: clamp(p.y, 0, imageHeight) }
   }
 
+  /** Zoom by `factor` around screen point `at` (default: canvas centre). */
+  const zoom = (factor: number, at: Pt = { x: size.w / 2, y: size.h / 2 }) => {
+    const scale = clamp(view.scale * factor, 0.05, 40)
+    const mx = (at.x - view.x) / view.scale
+    const my = (at.y - view.y) / view.scale
+    setView({ scale, x: at.x - mx * scale, y: at.y - my * scale })
+  }
+
   const onWheel = (e: KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault()
     const ptr = stageRef.current?.getPointerPosition()
-    if (!ptr) return
-    const scale = clamp(view.scale * (e.evt.deltaY > 0 ? 1 / 1.15 : 1.15), 0.05, 40)
-    const mx = (ptr.x - view.x) / view.scale
-    const my = (ptr.y - view.y) / view.scale
-    setView({ scale, x: ptr.x - mx * scale, y: ptr.y - my * scale })
+    if (ptr) zoom(e.evt.deltaY > 0 ? 1 / 1.15 : 1.15, ptr)
   }
 
   const isBackground = (target: Konva.Node) => target === stageRef.current || target.name() === 'background'
 
-  const onMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+  const onPointerDown = (e: KonvaEventObject<PointerEvent>) => {
     if (tool === 'pan' || e.evt.button === 1) return
     effort.click()
     const p = pointer()
@@ -129,14 +133,14 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
     }
   }
 
-  const onMouseMove = () => {
+  const onPointerMove = () => {
     const p = pointer()
     if (!p) return
     if (tool === 'polygon') setCursor(p)
     if (drag) setDrag({ ...drag, x2: p.x, y2: p.y })
   }
 
-  const onMouseUp = (e: KonvaEventObject<MouseEvent>) => {
+  const onPointerUp = (e: KonvaEventObject<PointerEvent>) => {
     if (tool === 'box' && drag) {
       const b = normalizeBox(drag.x1, drag.y1, drag.x2, drag.y2)
       setDrag(null)
@@ -161,7 +165,7 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
     if (e.target === stageRef.current) setView((v) => ({ ...v, x: e.target.x(), y: e.target.y() }))
   }
 
-  const selectShape = (id: string) => (e: KonvaEventObject<MouseEvent>) => {
+  const selectShape = (id: string) => (e: KonvaEventObject<PointerEvent>) => {
     if (tool !== 'select') return
     e.cancelBubble = true
     effort.click()
@@ -173,7 +177,8 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
   const fontSize = 12 * k
 
   return (
-    <div ref={containerRef} className="relative h-full w-full overflow-hidden bg-slate-900" style={{ cursor: cursorStyle }}>
+    <div ref={containerRef} className="relative h-full w-full touch-none select-none overflow-hidden bg-slate-900"
+         style={{ cursor: cursorStyle }}>
       <Stage
         ref={stageRef}
         width={size.w}
@@ -185,9 +190,9 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
         draggable={tool === 'pan'}
         onDragEnd={onStageDragEnd}
         onWheel={onWheel}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
         onContextMenu={(e) => e.evt.preventDefault()}
       >
         <Layer>
@@ -198,7 +203,7 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
           {annotations.map((a) => {
             const color = labelById.get(a.label_id)?.color ?? '#94a3b8'
             const selected = a.id === selectedId
-            const strokeWidth = (selected ? 3 : 2) * k
+            const strokeWidth = (selected ? 4 : 3) * k
             const dash = a.source === 'ai' ? [6 * k, 3 * k] : undefined
             if (a.kind === 'box') {
               const g = a.geometry
@@ -208,10 +213,10 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
                   id={`ann-${a.id}`}
                   x={g.x} y={g.y} width={g.w} height={g.h}
                   stroke={color} strokeWidth={strokeWidth} dash={dash}
-                  fill={color + (selected ? '44' : '22')}
+                  fill={color + (selected ? '66' : '40')}
                   listening={tool === 'select'}
                   draggable={tool === 'select' && selected}
-                  onMouseDown={selectShape(a.id)}
+                  onPointerDown={selectShape(a.id)}
                   onDragEnd={(e) => s.update(a.id, { geometry: { ...g, x: e.target.x(), y: e.target.y() } })}
                   onTransformEnd={(e) => {
                     const node = e.target
@@ -236,10 +241,10 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
                 points={points}
                 closed
                 stroke={color} strokeWidth={strokeWidth} dash={dash}
-                fill={color + (selected ? '44' : '22')}
+                fill={color + (selected ? '66' : '40')}
                 listening={tool === 'select'}
                 draggable={tool === 'select' && selected}
-                onMouseDown={selectShape(a.id)}
+                onPointerDown={selectShape(a.id)}
                 onDragEnd={(e) => {
                   const dx = e.target.x()
                   const dy = e.target.y()
@@ -247,6 +252,28 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
                   s.update(a.id, { geometry: { points: points.map((v, i) => v + (i % 2 ? dy : dx)) } })
                 }}
               />
+            )
+          })}
+
+          {/* Label name pill above each annotation: solid label colour, readable on any image. */}
+          {annotations.map((a) => {
+            const label = labelById.get(a.label_id)
+            let x: number, y: number
+            if (a.kind === 'box') {
+              x = a.geometry.x
+              y = a.geometry.y
+            } else {
+              const pts = a.geometry.points
+              x = Math.min(...pts.filter((_, i) => i % 2 === 0))
+              y = Math.min(...pts.filter((_, i) => i % 2 === 1))
+            }
+            const tagHeight = fontSize + 6 * k
+            return (
+              <KLabel key={`lt-${a.id}`} x={x} y={y < tagHeight ? y : y - tagHeight} listening={false}>
+                <Tag fill={label?.color ?? '#94a3b8'} cornerRadius={3 * k} opacity={0.9} />
+                <Text text={label?.name ?? '?'} fontSize={fontSize} fontStyle="bold" fill="#fff"
+                      padding={3 * k} shadowColor="#000" shadowBlur={2 * k} shadowOpacity={0.6} />
+              </KLabel>
             )
           })}
 
@@ -263,7 +290,7 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
                 radius={5 * k}
                 fill="#fff" stroke="#0f172a" strokeWidth={1.5 * k}
                 draggable
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.cancelBubble = true
                   effort.click()
                   if (e.evt.altKey && pts.length > 6) {
@@ -296,7 +323,7 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
                 stroke={PROPOSAL_COLOR} strokeWidth={(selected ? 3 : 1.5) * k} dash={[8 * k, 4 * k]}
                 fill={selected ? PROPOSAL_COLOR + '33' : undefined}
                 listening={tool === 'select'}
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   if (tool !== 'select') return
                   e.cancelBubble = true
                   effort.click()
@@ -346,9 +373,13 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
         </Layer>
       </Stage>
 
-      <div className="absolute bottom-3 right-3 flex gap-2 text-xs">
-        <span className="rounded bg-slate-800/80 px-2 py-1 text-slate-300">{Math.round(view.scale * 100)}%</span>
-        <button onClick={fit} className="rounded bg-slate-800/80 px-2 py-1 text-slate-200 hover:bg-slate-700">
+      <div className="absolute bottom-3 right-3 flex gap-2 text-sm">
+        <span className="rounded bg-slate-800/80 px-2 py-1.5 text-slate-300">{Math.round(view.scale * 100)}%</span>
+        <button onClick={() => zoom(1 / 1.25)} aria-label="Zoom out"
+                className="rounded bg-slate-800/80 px-3 py-1.5 text-slate-200 hover:bg-slate-700">−</button>
+        <button onClick={() => zoom(1.25)} aria-label="Zoom in"
+                className="rounded bg-slate-800/80 px-3 py-1.5 text-slate-200 hover:bg-slate-700">+</button>
+        <button onClick={fit} className="rounded bg-slate-800/80 px-2 py-1.5 text-slate-200 hover:bg-slate-700">
           Fit (F)
         </button>
       </div>

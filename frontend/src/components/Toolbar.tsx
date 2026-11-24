@@ -17,9 +17,9 @@ export function Toolbar({ tool, onTool, smartEnabled, onUndo, onRedo, canUndo, c
   canUndo: boolean
   canRedo: boolean
 }) {
-  const base = 'flex h-10 w-10 items-center justify-center rounded-md text-lg transition disabled:opacity-30'
+  const base = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-lg transition disabled:opacity-30'
   return (
-    <nav className="flex w-14 shrink-0 flex-col items-center gap-1 border-r border-slate-800 py-2">
+    <nav className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-800 px-2 py-1 md:w-14 md:flex-col md:border-b-0 md:border-r md:px-0 md:py-2">
       {TOOLS.map((t) => {
         const disabled = t.id === 'smart' && !smartEnabled
         return (
@@ -35,7 +35,7 @@ export function Toolbar({ tool, onTool, smartEnabled, onUndo, onRedo, canUndo, c
           </button>
         )
       })}
-      <div className="my-2 h-px w-8 bg-slate-800" />
+      <div className="mx-1 h-8 w-px shrink-0 bg-slate-800 md:mx-0 md:my-2 md:h-px md:w-8" />
       <button title="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo} className={`${base} text-slate-300 hover:bg-slate-800`}>↶</button>
       <button title="Redo (Ctrl+Y)" onClick={onRedo} disabled={!canRedo} className={`${base} text-slate-300 hover:bg-slate-800`}>↷</button>
     </nav>
