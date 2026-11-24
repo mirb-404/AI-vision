@@ -8,7 +8,7 @@
 #   ./run.sh test         run the backend test suite
 #   ./run.sh datalab      full test on Datalab: setup, unit tests, model smoke test,
 #                         end-to-end HTTP check (throwaway data dir), then serve with a
-#                         Cloudflare quick tunnel and print the public URL
+#                         demo dataset + Cloudflare quick tunnel, printing the public URL
 #                         (NO_SERVE=1 to stop after the checks, TUNNEL=0 for no tunnel)
 #
 # Every step is skipped when already done, so re-running is cheap.
@@ -17,6 +17,7 @@
 #   PORT=8000             API / single-port UI
 #   HOST=127.0.0.1        bind address. Keep 127.0.0.1 behind Jupyter proxy / SSH tunnel: the app has no login.
 #   TUNNEL=1              also open a Cloudflare quick tunnel (public URL, default on for datalab)
+#   DEMO=1                load the 8-image coco8 demo project once (default on for datalab)
 #   SKIP_MODELS=1         don't export model weights
 #   FORCE_CPU=1           use CPU onnxruntime even if a GPU is present
 #   YOLO_WEIGHTS=yolo26n.pt   SAM_MODEL=sam2.1_hiera_tiny
@@ -196,7 +197,7 @@ serve() {
   build_frontend
   log "Starting AI Annotator (UI + API) on ${HOST}:${PORT}"
   print_urls "$PORT"
-  if [ "${TUNNEL:-0}" != 1 ]; then
+  if [ "${TUNNEL:-0}" != 1 ] && [ "${DEMO:-0}" != 1 ]; then
     cd backend
     exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT"
   fi
@@ -210,7 +211,12 @@ serve() {
     kill -0 "$API_PID" 2>/dev/null || die "server exited during startup"
     sleep 1
   done
-  start_tunnel
+  if [ "${DEMO:-0}" = 1 ]; then
+    log "Loading demo dataset (coco8, 8 images)"
+    (cd backend && .venv/bin/python -m scripts.load_demo "http://127.0.0.1:${PORT}") \
+      || printf '\033[1;33mwarning:\033[0m demo dataset not loaded; app still runs.\n'
+  fi
+  [ "${TUNNEL:-0}" = 1 ] && start_tunnel
   wait "$API_PID"
 }
 
@@ -272,7 +278,7 @@ datalab() {
 
   log "4/4 All checks passed"
   [ -n "${NO_SERVE:-}" ] && return
-  TUNNEL="${TUNNEL:-1}" serve
+  TUNNEL="${TUNNEL:-1}" DEMO="${DEMO:-1}" serve
 }
 
 check_python
@@ -283,5 +289,5 @@ case "$MODE" in
   check) setup_backend; check_models "${2:-}" ;;
   test)  setup_backend; (cd backend && .venv/bin/python -m pytest -q) ;;
   datalab) export_models; setup_backend; setup_frontend; datalab ;;
-  *)     sed -n '2,22p' "$0"; exit 1 ;;
+  *)     sed -n '2,23p' "$0"; exit 1 ;;
 esac
