@@ -1,5 +1,77 @@
 @import "tailwindcss";
 
+/* Self-hosted variable fonts (bundled by Vite into dist/, no CDN: works offline and behind tunnels). */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/jetbrains-mono";
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Inter Variable", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --animate-tool-pop: tool-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-toast: toast 1800ms ease-out forwards;
+  --animate-fade-up: fade-up 280ms ease-out both;
+  --animate-fade-in: fade-in 200ms ease-out both;
+  --animate-spot-pulse: spot-pulse 1.8s ease-out infinite;
+
+  @keyframes tool-pop {
+    0% { transform: scale(0.82); }
+    100% { transform: scale(1); }
+  }
+  @keyframes toast {
+    0% { opacity: 0; transform: translate(-50%, 8px) scale(0.96); }
+    12% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    80% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -4px) scale(0.98); }
+  }
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes spot-pulse {
+    0% { opacity: 0.7; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.18); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+
 html, body, #root {
   height: 100%;
+}
+
+body {
+  background: #0a0a0a;
+  color: #f5f5f5;
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: rgb(255 255 255 / 0.2);
+}
+
+/* Thin dark scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #404040 transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }

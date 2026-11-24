@@ -1,16 +1,19 @@
 import io
+import re
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image as PILImage
 from PIL import ImageOps, UnidentifiedImageError
 from sqlmodel import Session, select
 
 from .. import config
 from ..db import get_session
+from ..export.render import render_annotated
 from ..schemas import ImageOut, ImagePatch, UploadError, UploadResult
-from ..tables import Annotation, Image
+from ..tables import Annotation, Image, Label
 from .common import annotation_counts, image_or_404, project_or_404
 
 router = APIRouter(prefix="/api", tags=["images"])
@@ -95,6 +98,19 @@ def get_image(image_id: int, db: Session = Depends(get_session)):
 def image_file(image_id: int, db: Session = Depends(get_session)):
     image = image_or_404(db, image_id)
     return FileResponse(config.IMAGES_DIR / image.stored_name)
+
+
+@router.get("/images/{image_id}/rendered")
+def image_rendered(image_id: int, db: Session = Depends(get_session)):
+    """The image as JPEG with its saved annotations drawn on, as a download."""
+    image = image_or_404(db, image_id)
+    anns = db.exec(select(Annotation).where(Annotation.image_id == image_id)
+                   .order_by(Annotation.created_at)).all()  # type: ignore[arg-type]
+    labels = {l.id: l for l in db.exec(select(Label).where(Label.project_id == image.project_id)).all()}
+    data = render_annotated(config.IMAGES_DIR / image.stored_name, image, list(anns), labels)
+    stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(image.filename).stem)[:80] or "image"
+    return Response(data, media_type="image/jpeg",
+                    headers={"Content-Disposition": f'attachment; filename="{stem}_annotated.jpg"'})
 
 
 @router.patch("/images/{image_id}", response_model=ImageOut)

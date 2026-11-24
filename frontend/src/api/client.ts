@@ -1,5 +1,5 @@
 import type {
-  AiStatus, Annotation, BoxGeom, DetectResult, EffortEvent, ImageInfo, ImageStatus, Label,
+  AiStatus, Annotation, AutoLabelResult, BoxGeom, DetectResult, EffortEvent, ImageInfo, ImageStatus, Label,
   LabelingSession, Mode, Project, PromptPoint, SegmentResult, Stats, UploadResult,
 } from './types'
 
@@ -53,6 +53,8 @@ export const api = {
   },
   getImage: (imageId: number) => request<ImageInfo>(`/images/${imageId}`),
   imageUrl: (imageId: number) => `${BASE}/images/${imageId}/file`,
+  /** JPEG with the saved annotations drawn on (download). */
+  renderedUrl: (imageId: number) => `${BASE}/images/${imageId}/rendered`,
   setImageStatus: (imageId: number, status: ImageStatus) =>
     request<ImageInfo>(`/images/${imageId}`, json('PATCH', { status })),
   deleteImage: (imageId: number) => request<void>(`/images/${imageId}`, { method: 'DELETE' }),
@@ -66,6 +68,8 @@ export const api = {
   segment: (imageId: number, points: PromptPoint[], box: BoxGeom | null) =>
     request<SegmentResult>(`/images/${imageId}/segment`, json('POST', { points, box })),
   detect: (imageId: number, conf = 0.1) => request<DetectResult>(`/images/${imageId}/detect`, json('POST', { conf })),
+  autoLabelProject: (projectId: number, conf: number, skipLabeled: boolean) =>
+    request<AutoLabelResult>(`/projects/${projectId}/auto-label`, json('POST', { conf, skip_labeled: skipLabeled })),
 
   createSession: (projectId: number, mode: Mode, participant: string) =>
     request<LabelingSession>(`/projects/${projectId}/sessions`, json('POST', { mode, participant })),
@@ -73,6 +77,6 @@ export const api = {
     request<void>(`/projects/${projectId}/events`, { ...json('POST', { events }), keepalive }),
   stats: (projectId: number) => request<Stats>(`/projects/${projectId}/stats`),
   eventsCsvUrl: (projectId: number) => `${BASE}/projects/${projectId}/events.csv`,
-  exportUrl: (projectId: number, format: 'coco' | 'yolo', onlyDone: boolean) =>
+  exportUrl: (projectId: number, format: 'coco' | 'yolo' | 'images', onlyDone: boolean) =>
     `${BASE}/projects/${projectId}/export?format=${format}&only_done=${onlyDone}`,
 }

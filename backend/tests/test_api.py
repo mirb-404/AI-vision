@@ -118,3 +118,53 @@ def test_events_and_stats(client):
     other = client.post("/api/projects", json={"name": "O"}).json()
     res = client.post(f"/api/projects/{other['id']}/events", json={"events": [{"session_id": ai["id"], "kind": "image_opened"}]})
     assert res.status_code == 422
+
+
+class _FakeYolo:
+    def detect(self, rgb, conf, iou):
+        h, w = rgb.shape[:2]
+        return [{"label": "Cat", "class_id": 15, "score": 0.9, "box": {"x": 2, "y": 2, "w": w / 2, "h": h / 2}},
+                {"label": "dog", "class_id": 16, "score": 0.6, "box": {"x": 10, "y": 10, "w": 8, "h": 8}},
+                {"label": "dog", "class_id": 16, "score": 0.5, "box": {"x": 1, "y": 1, "w": 0, "h": 5}}], 1.5
+
+
+def test_auto_label_project(client, monkeypatch):
+    from app.inference import registry
+
+    pid, label_id, image = _setup(client)
+    # Without weights the endpoint reports the model as unavailable.
+    assert client.post(f"/api/projects/{pid}/auto-label", json={}).status_code == 503
+
+    monkeypatch.setattr(registry, "get_yolo", lambda: _FakeYolo())
+    body = client.post(f"/api/projects/{pid}/auto-label", json={"conf": 0.25}).json()
+    assert body["images_labeled"] == 1 and body["images_skipped"] == 0
+    assert body["annotations_created"] == 2  # zero-width box dropped
+    assert body["labels_created"] == ["dog"]  # "Cat" maps to existing "cat"
+
+    anns = client.get(f"/api/images/{image['id']}/annotations").json()
+    assert {a["source"] for a in anns} == {"ai"} and all(a["kind"] == "box" for a in anns)
+    assert any(a["label_id"] == label_id for a in anns)
+    assert client.get(f"/api/images/{image['id']}").json()["status"] == "in_progress"
+
+    # Second run skips the now-labelled image.
+    again = client.post(f"/api/projects/{pid}/auto-label", json={}).json()
+    assert again["images_labeled"] == 0 and again["images_skipped"] == 1
+
+
+def test_rendered_image_and_images_export(client):
+    pid, label_id, image = _setup(client)
+    client.put(f"/api/images/{image['id']}/annotations", json={"annotations": [
+        {"id": "r1", "label_id": label_id, "kind": "box", "geometry": {"x": 1, "y": 1, "w": 20, "h": 20}},
+        {"id": "r2", "label_id": label_id, "kind": "polygon", "score": 0.8,
+         "geometry": {"points": [30, 5, 60, 5, 45, 40]}},
+    ]})
+    res = client.get(f"/api/images/{image['id']}/rendered")
+    assert res.status_code == 200 and res.headers["content-type"] == "image/jpeg"
+    assert "attachment" in res.headers["content-disposition"]
+    rendered = Image.open(io.BytesIO(res.content))
+    assert rendered.size == (64, 48)
+    assert rendered.getpixel((1, 10)) != (200, 30, 30)  # box outline drawn over the red background
+
+    zres = client.get(f"/api/projects/{pid}/export", params={"format": "images"})
+    names = zipfile.ZipFile(io.BytesIO(zres.content)).namelist()
+    assert len(names) == 1 and names[0].startswith("annotated/") and names[0].endswith(".jpg")

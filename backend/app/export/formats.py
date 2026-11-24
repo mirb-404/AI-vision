@@ -1,4 +1,4 @@
-"""Annotation export to standard formats (COCO JSON, YOLO txt), zipped with images."""
+"""Annotation export to standard formats (COCO JSON, YOLO txt) or rendered images, zipped."""
 
 import json
 import re
@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..tables import Annotation, Image, Label
+from .render import render_annotated
 
 
 def export_name(image: Image) -> str:
@@ -109,3 +110,13 @@ def write_yolo_zip(zf: zipfile.ZipFile, images: list[Image], labels: list[Label]
     names = "\n".join(f"  {i}: {json.dumps(l.name)}" for i, l in enumerate(labels))
     zf.writestr("data.yaml", f"path: .\ntrain: images\nval: images\nnames:\n{names}\n")
     zf.writestr("classes.txt", "\n".join(l.name for l in labels) + "\n")
+
+
+def write_images_zip(zf: zipfile.ZipFile, images: list[Image], labels: list[Label],
+                     annotations: dict[int, list[Annotation]], images_dir: Path) -> None:
+    """Each image as a JPEG with its annotations drawn on (for viewing / sharing, not training)."""
+    by_id = {l.id: l for l in labels}
+    for image in images:
+        data = render_annotated(images_dir / image.stored_name, image,
+                                annotations.get(image.id, []), by_id)  # type: ignore[arg-type]
+        zf.writestr(f"annotated/{Path(export_name(image)).stem}.jpg", data)

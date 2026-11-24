@@ -1,8 +1,9 @@
 """End-to-end check of a running server over real HTTP.
 
 Walks the same path a user takes in the UI: create a project and label,
-upload an image, run Smart select (SAM) and Auto-label (YOLO), save
-annotations, log effort events, read stats, export COCO and YOLO, and load
+upload an image, run Smart select (SAM) and Auto-label (YOLO, per image and
+for the whole project), save annotations, download the annotated image, log
+effort events, read stats, export COCO, YOLO and annotated images, and load
 the UI page.
 
 Run from backend/ against a server that is already up:
@@ -115,6 +116,12 @@ def main() -> None:
 
         annotations.append({"id": uuid.uuid4().hex, "label_id": label["id"], "kind": "polygon",
                             "source": "ai", "score": seg["score"], "geometry": {"points": seg["polygon"]}})
+        auto = c.expect("YOLO auto-label project", api.post(f"/api/projects/{pid}/auto-label",
+                                                             json={"conf": 0.25, "skip_labeled": False})).json()
+        if auto["annotations_created"] < 1:
+            c.fail("YOLO auto-label project", f"nothing saved: {auto}")
+        c.ok("YOLO auto-label project", f"{auto['annotations_created']} boxes saved")
+
         b = det["detections"][0]["box"]
         annotations.append({"id": uuid.uuid4().hex, "label_id": label["id"], "kind": "box",
                             "source": "ai", "score": det["detections"][0]["score"], "geometry": b})
@@ -125,6 +132,11 @@ def main() -> None:
     if len(saved) != len(annotations) or len(back) != len(annotations):
         c.fail("save annotations", f"sent {len(annotations)}, saved {len(saved)}, reloaded {len(back)}")
     c.ok("save + reload annotations", f"{len(back)} annotations")
+
+    rendered = c.expect("annotated image", api.get(f"/api/images/{iid}/rendered"))
+    if rendered.headers.get("content-type") != "image/jpeg":
+        c.fail("annotated image", f"content-type {rendered.headers.get('content-type')}")
+    c.ok("annotated image", f"{len(rendered.content) // 1024} KB JPEG")
 
     c.expect("mark image done", api.patch(f"/api/images/{iid}", json={"status": "done"}))
     c.ok("mark image done")
@@ -142,7 +154,7 @@ def main() -> None:
     csv = c.expect("events CSV", api.get(f"/api/projects/{pid}/events.csv")).text
     c.ok("events CSV", f"{len(csv.splitlines())} lines")
 
-    for fmt in ("coco", "yolo"):
+    for fmt in ("coco", "yolo", "images"):
         resp = c.expect(f"export {fmt}", api.get(f"/api/projects/{pid}/export", params={"format": fmt}))
         try:
             names = zipfile.ZipFile(io.BytesIO(resp.content)).namelist()

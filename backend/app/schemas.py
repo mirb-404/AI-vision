@@ -147,6 +147,22 @@ class DetectResponse(BaseModel):
     latency_ms: float
 
 
+class AutoLabelRequest(BaseModel):
+    conf: float = Field(default=0.25, ge=0.0, le=1.0)
+    iou: float = Field(default=0.45, ge=0.0, le=1.0)
+    # Images that already have annotations are left alone unless this is False
+    # (then detections are added next to the existing annotations).
+    skip_labeled: bool = True
+
+
+class AutoLabelResponse(BaseModel):
+    images_labeled: int
+    images_skipped: int
+    annotations_created: int
+    labels_created: list[str]
+    latency_ms: float
+
+
 class EmbedResponse(BaseModel):
     latency_ms: float
     cached: bool

@@ -177,7 +177,7 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
   const fontSize = 12 * k
 
   return (
-    <div ref={containerRef} className="relative h-full w-full touch-none select-none overflow-hidden bg-slate-900"
+    <div ref={containerRef} className="relative h-full w-full touch-none select-none overflow-hidden bg-neutral-900"
          style={{ cursor: cursorStyle }}>
       <Stage
         ref={stageRef}
@@ -271,7 +271,7 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
             return (
               <KLabel key={`lt-${a.id}`} x={x} y={y < tagHeight ? y : y - tagHeight} listening={false}>
                 <Tag fill={label?.color ?? '#94a3b8'} cornerRadius={3 * k} opacity={0.9} />
-                <Text text={label?.name ?? '?'} fontSize={fontSize} fontStyle="bold" fill="#fff"
+                <Text text={label?.name ?? '?'} fontSize={fontSize} fontStyle="600" fontFamily="Inter Variable, sans-serif" fill="#fff"
                       padding={3 * k} shadowColor="#000" shadowBlur={2 * k} shadowOpacity={0.6} />
               </KLabel>
             )
@@ -373,18 +373,18 @@ export function AnnotationCanvas({ imageUrl, imageWidth, imageHeight, labels, on
         </Layer>
       </Stage>
 
-      <div className="absolute bottom-3 right-3 flex gap-2 text-sm">
-        <span className="rounded bg-slate-800/80 px-2 py-1.5 text-slate-300">{Math.round(view.scale * 100)}%</span>
+      <div data-tour="zoom" className="absolute bottom-3 right-3 flex gap-2 text-sm">
+        <span className="rounded bg-neutral-800/80 px-2 py-1.5 text-neutral-300">{Math.round(view.scale * 100)}%</span>
         <button onClick={() => zoom(1 / 1.25)} aria-label="Zoom out"
-                className="rounded bg-slate-800/80 px-3 py-1.5 text-slate-200 hover:bg-slate-700">−</button>
+                className="rounded bg-neutral-800/80 px-3 py-1.5 text-neutral-200 hover:bg-neutral-700">−</button>
         <button onClick={() => zoom(1.25)} aria-label="Zoom in"
-                className="rounded bg-slate-800/80 px-3 py-1.5 text-slate-200 hover:bg-slate-700">+</button>
-        <button onClick={fit} className="rounded bg-slate-800/80 px-2 py-1.5 text-slate-200 hover:bg-slate-700">
+                className="rounded bg-neutral-800/80 px-3 py-1.5 text-neutral-200 hover:bg-neutral-700">+</button>
+        <button onClick={fit} className="rounded bg-neutral-800/80 px-2 py-1.5 text-neutral-200 hover:bg-neutral-700">
           Fit (F)
         </button>
       </div>
       {!img && (
-        <div className="absolute inset-0 flex items-center justify-center text-slate-400">Loading image…</div>
+        <div className="absolute inset-0 flex items-center justify-center text-neutral-400">Loading image…</div>
       )}
     </div>
   )

@@ -70,14 +70,18 @@ Data (SQLite DB and uploaded images) goes to `./data/`. Change the location with
    - **Smart (S)**: click an object for SAM. Right-click marks background. Drag to give a box. Press Enter to accept.
    - **Auto-label**: runs YOLO. Use the confidence slider, then accept (A) or reject (Del) each proposal, or all at once.
    - The ✦ button on a box refines it into a SAM mask.
+   - **⤓ Image** downloads the current image as a JPEG with its annotations drawn on.
 5. Click **Mark done**, which moves you to the next image. Annotations autosave.
-6. Export COCO or YOLO zips (images included) from the project page.
-7. **Effort stats** shows seconds and clicks per object for each mode, the speed-up, proposal accept and edit rates, and model latency. You can also download the raw event CSV.
+6. Optional: **Auto-label all images** on the project page runs YOLO over every image and saves the boxes as AI annotations. By default it skips images that already have annotations.
+7. Export from the project page: COCO or YOLO zips (images plus labels), or **Annotated images** (JPEGs with the labels drawn on).
+8. **Effort stats** shows seconds and clicks per object for each mode, the speed-up, proposal accept and edit rates, and model latency. You can also download the raw event CSV.
+
+The **?** button on the project and editor pages starts a guided tour that spotlights each control. The tour opens by itself on the first visit; press `?` in the editor to replay it.
 
 ## API
 
 FastAPI docs: `http://localhost:8000/docs` (dev) or `http://localhost:8080/api/...` (docker).
-Main routes: `/api/projects`, `/api/projects/{id}/images`, `/api/images/{id}/annotations`, `/api/images/{id}/segment`, `/api/images/{id}/detect`, `/api/projects/{id}/export?format=coco|yolo`, `/api/projects/{id}/stats`, `/api/projects/{id}/events.csv`.
+Main routes: `/api/projects`, `/api/projects/{id}/images`, `/api/images/{id}/annotations`, `/api/images/{id}/segment`, `/api/images/{id}/detect`, `/api/projects/{id}/export?format=coco|yolo|images`, `/api/projects/{id}/auto-label`, `/api/images/{id}/rendered`, `/api/projects/{id}/stats`, `/api/projects/{id}/events.csv`.
 
 ## Models and citations
 

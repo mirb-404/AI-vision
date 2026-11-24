@@ -29,7 +29,7 @@ export function ProjectsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Projects</h1>
-        <p className="text-sm text-slate-400">A project holds images, label classes and their annotations.</p>
+        <p className="text-sm text-neutral-400">A project holds images, label classes and their annotations.</p>
       </div>
 
       <form onSubmit={create} className="flex gap-2">
@@ -41,18 +41,18 @@ export function ProjectsPage() {
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {projects === null ? (
-        <p className="text-slate-400">Loading…</p>
+        <p className="text-neutral-400">Loading…</p>
       ) : projects.length === 0 ? (
-        <p className="text-slate-400">No projects yet. Create one above.</p>
+        <p className="text-neutral-400">No projects yet. Create one above.</p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((p) => (
-            <Link key={p.id} to={`/projects/${p.id}`} className={`${card} p-4 transition hover:border-indigo-500`}>
+            <Link key={p.id} to={`/projects/${p.id}`} className={`${card} p-4 transition hover:border-neutral-500`}>
               <div className="font-medium">{p.name}</div>
-              <div className="mt-2 text-sm text-slate-400">
+              <div className="mt-2 text-sm text-neutral-400">
                 {p.image_count} images · {p.done_count} done · {p.annotation_count} annotations
               </div>
-              <div className="mt-3 h-1.5 overflow-hidden rounded bg-slate-800">
+              <div className="mt-3 h-1.5 overflow-hidden rounded bg-neutral-800">
                 <div className="h-full bg-emerald-500"
                      style={{ width: `${p.image_count ? (100 * p.done_count) / p.image_count : 0}%` }} />
               </div>

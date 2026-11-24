@@ -5,7 +5,8 @@ import type { AiStatus, Annotation, BoxGeom, ImageInfo, Label, Mode, PolygonGeom
 import { AnnotationCanvas } from '../components/AnnotationCanvas'
 import { AnnotationList } from '../components/AnnotationList'
 import { ProposalPanel } from '../components/ProposalPanel'
-import { Toolbar } from '../components/Toolbar'
+import { Toolbar, TOOLS } from '../components/Toolbar'
+import { HelpButton, Tour, useTour, type TourStep } from '../components/Tour'
 import { effort } from '../lib/effort'
 import { nextColor, uid } from '../lib/geometry'
 import { loadSettings, saveSettings } from '../lib/settings'
@@ -37,6 +38,8 @@ export function AnnotatePage() {
   const imageIdRef = useRef<number | null>(null)
   const savedVersion = useRef(0)
   const segmentSeq = useRef(0)
+
+  const tour = useTour('annotator-tour-annotate-v1', !!image)
 
   const samReady = mode === 'ai' && !!aiStatus?.sam.available
   const yoloReady = mode === 'ai' && !!aiStatus?.yolo.available
@@ -274,6 +277,17 @@ export function AnnotatePage() {
     }
   }
 
+  /** Save first so the download includes the latest edits, then fetch the rendered JPEG. */
+  const downloadAnnotated = async () => {
+    await save()
+    const a = document.createElement('a')
+    a.href = api.renderedUrl(imageId)
+    a.download = ''
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
   // ---- keyboard -----------------------------------------------------------
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {})
   keyHandler.current = (e: KeyboardEvent) => {
@@ -310,6 +324,8 @@ export function AnnotatePage() {
       if (!label) return
       s.setActiveLabel(label.id)
       if (s.selectedId) s.update(s.selectedId, { label_id: label.id })
+    } else if (e.key === '?') {
+      tour.start()
     } else if (e.key === '.') {
       goTo(images[index + 1]?.id)
     } else if (e.key === ',') {
@@ -324,33 +340,36 @@ export function AnnotatePage() {
 
   // ---- render -------------------------------------------------------------
   return (
-    <div className="flex h-dvh flex-col bg-slate-950">
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-slate-800 px-3 py-2 text-sm">
-        <Link to={`/projects/${projectId}`} className="text-slate-400 hover:text-slate-100">← Project</Link>
+    <div className="flex h-dvh flex-col bg-neutral-950">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-neutral-800 px-3 py-2 text-sm">
+        <Link to={`/projects/${projectId}`} className="text-neutral-400 hover:text-neutral-100">← Project</Link>
         <span className="min-w-0 max-w-[40vw] truncate font-medium md:max-w-none" title={image?.filename}>{image?.filename ?? '…'}</span>
         {image && (
           <span className={`rounded px-1.5 py-0.5 text-xs ${statusStyle[image.status]}`}>{image.status.replace('_', ' ')}</span>
         )}
-        <span className="text-slate-500">{index >= 0 ? `${index + 1} / ${images.length}` : ''}</span>
-        <div className="flex gap-1">
+        <span className="text-neutral-500">{index >= 0 ? `${index + 1} / ${images.length}` : ''}</span>
+        <div data-tour="nav" className="flex gap-1">
           <button className={btnSecondary} onClick={() => goTo(images[index - 1]?.id)} disabled={index <= 0}>‹ Prev</button>
           <button className={btnSecondary} onClick={() => goTo(images[index + 1]?.id)}
                   disabled={index < 0 || index >= images.length - 1}>Next ›</button>
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2 md:gap-3">
-          <div className="flex rounded-md border border-slate-700 p-0.5 text-xs">
+          <div data-tour="mode" className="flex rounded-lg border border-neutral-800 bg-neutral-900 p-0.5 text-xs">
             {(['ai', 'manual'] as Mode[]).map((m) => (
               <button key={m} onClick={() => changeMode(m)}
-                      className={`rounded px-2 py-1 ${mode === m ? 'bg-indigo-600 text-white' : 'text-slate-300'}`}>
+                      className={`rounded-md px-2 py-1 transition duration-200 ${mode === m ? 'bg-neutral-100 text-neutral-950 shadow-sm' : 'text-neutral-400 hover:text-neutral-100'}`}>
                 {m === 'ai' ? 'AI-assisted' : 'Manual'}
               </button>
             ))}
           </div>
-          <span className={`text-xs ${saveState === 'error' ? 'text-red-400' : 'text-slate-500'}`}>
+          <span data-tour="save" className={`text-xs ${saveState === 'error' ? 'text-red-400' : 'text-neutral-500'}`}>
             {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : 'Saved'}
           </span>
-          <button className={btnPrimary} onClick={markDone} disabled={!image}>Mark done ✓</button>
+          <button data-tour="download" className={btnSecondary} onClick={downloadAnnotated} disabled={!image}
+                  title="Download this image with its annotations drawn on">⤓ Image</button>
+          <button data-tour="done" className={btnPrimary} onClick={markDone} disabled={!image}>Mark done ✓</button>
+          <HelpButton onClick={tour.start} />
         </div>
       </header>
 
@@ -366,7 +385,7 @@ export function AnnotatePage() {
                  onUndo={store.undo} onRedo={store.redo}
                  canUndo={store.past.length > 0} canRedo={store.future.length > 0} />
 
-        <div className="relative min-h-[45dvh] min-w-0 flex-1 md:min-h-0">
+        <div data-tour="canvas" className="relative min-h-[45dvh] min-w-0 flex-1 md:min-h-0">
           {image ? (
             <AnnotationCanvas
               imageUrl={api.imageUrl(image.id)}
@@ -377,32 +396,34 @@ export function AnnotatePage() {
               onCreatePolygon={createPolygon}
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-slate-500">Loading…</div>
+            <div className="flex h-full items-center justify-center text-neutral-500">Loading…</div>
           )}
+          <ToolToast tool={tool} />
           <ToolHint tool={tool} smartBusy={smartBusy} embedState={embedState}
                     hasPreview={!!store.smartPreview} onAccept={acceptSmart} onClear={store.clearSmart} />
         </div>
 
-        <aside className="max-h-[40dvh] w-full shrink-0 space-y-4 overflow-y-auto border-t border-slate-800 p-3 md:max-h-none md:w-80 md:border-l md:border-t-0">
-          <section className="space-y-1.5">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Labels</h3>
+        <aside className="max-h-[40dvh] w-full shrink-0 space-y-4 overflow-y-auto border-t border-neutral-800 p-3 md:max-h-none md:w-80 md:border-l md:border-t-0">
+          <section data-tour="labels" className="space-y-1.5">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Labels</h3>
             {labels.length === 0 && (
-              <p className="text-xs text-slate-500">No labels. Add some on the project page.</p>
+              <p className="text-xs text-neutral-500">No labels. Add some on the project page.</p>
             )}
             <div className="flex flex-wrap gap-1.5">
               {labels.map((l, i) => (
                 <button key={l.id} onClick={() => store.setActiveLabel(l.id)}
                         className={`flex items-center gap-1.5 rounded border px-2 py-1 text-xs ${
-                          activeLabelId === l.id ? 'border-slate-200 bg-slate-800' : 'border-slate-700'}`}>
+                          activeLabelId === l.id ? 'border-neutral-200 bg-neutral-800' : 'border-neutral-700'}`}>
                   <span className="h-2.5 w-2.5 rounded-sm" style={{ background: l.color }} />
                   {l.name}
-                  {i < 9 && <span className="text-slate-500">{i + 1}</span>}
+                  {i < 9 && <span className="text-neutral-500">{i + 1}</span>}
                 </button>
               ))}
             </div>
           </section>
 
           {mode === 'ai' ? (
+            <div data-tour="autolabel">
             <ProposalPanel
               available={yoloReady}
               detail={aiStatus?.yolo.detail}
@@ -411,16 +432,19 @@ export function AnnotatePage() {
               onAccept={acceptProposals}
               onReject={rejectProposals}
             />
+            </div>
           ) : (
-            <p className="rounded-md border border-slate-800 p-2 text-xs text-slate-400">
+            <p className="rounded-md border border-neutral-800 p-2 text-xs text-neutral-400">
               Manual mode: AI tools are off. Use this mode for the baseline of the effort study.
             </p>
           )}
 
-          <AnnotationList labels={labels} samEnabled={samReady} />
+          <div data-tour="annotations">
+            <AnnotationList labels={labels} samEnabled={samReady} />
+          </div>
 
-          <details className="text-xs text-slate-400">
-            <summary className="cursor-pointer text-slate-300">Shortcuts</summary>
+          <details className="text-xs text-neutral-400">
+            <summary className="cursor-pointer text-neutral-300">Shortcuts</summary>
             <ul className="mt-2 space-y-0.5">
               <li>V select · B box · P polygon · S smart (SAM) · H pan · F fit</li>
               <li>Polygon: click points, Enter or click first point to close</li>
@@ -429,13 +453,57 @@ export function AnnotatePage() {
               <li>A accept selected proposal · 1–9 pick label</li>
               <li>Ctrl+Z undo · Ctrl+Y redo · , / . previous / next image</li>
               <li>Alt+click a polygon vertex to remove it</li>
+              <li>? show the tutorial</li>
             </ul>
           </details>
         </aside>
       </div>
+
+      <Tour steps={ANNOTATE_TOUR} open={tour.open} onClose={tour.close} />
     </div>
   )
 }
+
+/** Short animated card naming the tool after every tool switch. */
+function ToolToast({ tool }: { tool: Tool }) {
+  const prev = useRef(tool)
+  const [shown, setShown] = useState<{ tool: Tool; n: number } | null>(null)
+  useEffect(() => {
+    if (prev.current === tool) return
+    prev.current = tool
+    setShown((s) => ({ tool, n: (s?.n ?? 0) + 1 }))
+  }, [tool])
+  const t = shown && TOOLS.find((x) => x.id === shown.tool)
+  if (!shown || !t) return null
+  return (
+    <div key={shown.n} role="status"
+         className="pointer-events-none absolute bottom-16 left-1/2 z-10 flex max-w-[90%] animate-toast items-center gap-3 rounded-xl border border-neutral-700 bg-neutral-900/95 px-3 py-2 shadow-xl shadow-black/50 backdrop-blur">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-base text-neutral-950">{t.icon}</span>
+      <span className="min-w-0">
+        <span className="block font-display text-sm font-semibold text-white">
+          {t.label} <kbd className="ml-1 font-mono text-xs text-neutral-500">{t.key}</kbd>
+        </span>
+        <span className="line-clamp-2 block text-xs text-neutral-400">{t.tip}</span>
+      </span>
+    </div>
+  )
+}
+
+const ANNOTATE_TOUR: TourStep[] = [
+  { target: 'canvas', title: 'Your image', body: 'Annotations are drawn right on the image. Each one shows its label name in a coloured tag.' },
+  ...TOOLS.map((t) => ({ target: `tool-${t.id}`, title: `${t.icon}  ${t.label}`, body: `${t.tip} Shortcut: ${t.key}.` })),
+  { target: 'history', title: 'Undo / redo', body: 'Step back or forward through your edits. Ctrl+Z and Ctrl+Y work too.' },
+  { target: 'zoom', title: 'Zoom', body: 'Zoom in and out, or press Fit (F) to see the whole image again.' },
+  { target: 'labels', title: 'Labels', body: 'Pick the label for new shapes. Keys 1-9 choose a label and relabel the selected shape.' },
+  { target: 'autolabel', title: 'AI pre-labels (YOLO)', body: 'Auto-label finds objects and proposes boxes. Accept them one by one or all at once; accepted boxes are saved as annotations.' },
+  { target: 'annotations', title: 'Annotation list', body: 'Every shape on this image. Change its label, refine a box into a mask with the ✦ button, or delete it.' },
+  { target: 'mode', title: 'AI-assisted vs manual', body: 'Manual turns the AI tools off. Time and clicks are logged per mode to measure the effort AI saves.' },
+  { target: 'save', title: 'Autosave', body: 'Your work saves automatically after every change.' },
+  { target: 'download', title: 'Download annotated image', body: 'Saves this image as a JPEG with all its annotations drawn on.' },
+  { target: 'done', title: 'Mark done', body: 'Marks the image finished and jumps to the next unfinished one.' },
+  { target: 'nav', title: 'Previous / next', body: 'Move between images. The , and . keys do the same.' },
+  { target: 'help', title: 'Replay this tour', body: 'Tap ? (or press ?) any time to see this tutorial again.' },
+]
 
 function ToolHint({ tool, smartBusy, embedState, hasPreview, onAccept, onClear }: {
   tool: Tool
@@ -447,7 +515,7 @@ function ToolHint({ tool, smartBusy, embedState, hasPreview, onAccept, onClear }
 }) {
   if (tool !== 'smart') return null
   return (
-    <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md bg-slate-800/90 px-3 py-1.5 text-xs text-slate-200 shadow">
+    <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md bg-neutral-800/90 px-3 py-1.5 text-xs text-neutral-200 shadow">
       {embedState === 'running' ? 'Preparing image for SAM…'
         : smartBusy ? 'Segmenting…'
         : hasPreview ? 'Add points to refine, Enter to accept'
@@ -455,7 +523,7 @@ function ToolHint({ tool, smartBusy, embedState, hasPreview, onAccept, onClear }
       {hasPreview && (
         <>
           <button className="rounded bg-cyan-600 px-2 py-0.5 text-white hover:bg-cyan-500" onClick={onAccept}>Accept</button>
-          <button className="rounded px-2 py-0.5 hover:bg-slate-700" onClick={onClear}>Clear</button>
+          <button className="rounded px-2 py-0.5 hover:bg-neutral-700" onClick={onClear}>Clear</button>
         </>
       )}
     </div>

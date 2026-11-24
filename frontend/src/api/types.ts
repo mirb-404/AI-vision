@@ -82,6 +82,14 @@ export interface DetectResult {
   latency_ms: number
 }
 
+export interface AutoLabelResult {
+  images_labeled: number
+  images_skipped: number
+  annotations_created: number
+  labels_created: string[]
+  latency_ms: number
+}
+
 export interface ModelStatus {
   available: boolean
   loaded: boolean
