@@ -12,7 +12,23 @@ diary/      daily progress reports
 plan.md     project plan
 ```
 
-## Run (one command)
+## Run on Linux without Docker (one command)
+
+```bash
+./run.sh            # first run: venvs, model export, Node 22 via nvm if needed, UI build; then serves UI + API on :8000
+```
+
+`run.sh` skips every step that is already done, so later runs start in seconds. Other modes:
+- `./run.sh dev`: hot-reload dev servers
+- `./run.sh setup`: set up only, don't start
+- `./run.sh check [img]`: smoke-test the models
+- `./run.sh test`: run the backend tests
+
+On a GPU machine it uses `onnxruntime-gpu` automatically. It binds to `127.0.0.1` by default because the app has no login. Open it through a tunnel:
+- **JupyterHub:** `https://<hub>/user/<name>/proxy/8000/`. The script prints the exact path. This needs `jupyter-server-proxy`.
+- **VS Code / SSH:** forward port 8000.
+
+## Run with Docker (one command)
 
 ```bash
 docker compose up --build        # http://localhost:8080

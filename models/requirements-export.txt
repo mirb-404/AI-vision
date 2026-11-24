@@ -3,3 +3,6 @@ ultralytics>=8.3
 samexporter>=0.4
 onnx>=1.16
 onnxruntime>=1.19
+# Meta's SAM 2 code (needed by samexporter.export_sam2). Not on PyPI.
+# Set SAM2_BUILD_CUDA=0 when installing to skip the optional CUDA extension build.
+sam2 @ git+https://github.com/facebookresearch/sam2.git

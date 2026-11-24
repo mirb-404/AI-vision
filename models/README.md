@@ -48,7 +48,7 @@ The encoder may have any number of outputs. Each one is passed to the decoder in
 | `point_labels` | `[1, N]`: 1 = foreground, 0 = background, 2/3 = box corners, -1 = padding |
 | `mask_input` | `[1, 1, 256, 256]` zeros |
 | `has_mask_input` | `[1]` = 0 |
-| `orig_im_size` | `[2]` = (H, W) |
+| `orig_im_size` | `[2]` = (H, W). Optional: the samexporter SAM 2 decoder has no such input and returns 256x256 masks, which the backend resizes |
 
 Data types are cast to whatever the graph declares. Outputs are `masks` (logits; > 0 counts as foreground) and `iou_predictions`. The mask with the best predicted IoU is kept. If its size is not (H, W), it is resized.
 

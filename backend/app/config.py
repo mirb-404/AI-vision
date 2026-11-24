@@ -29,4 +29,7 @@ EMBED_CACHE_SIZE = int(os.getenv("EMBED_CACHE_SIZE", "8"))
 
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "50"))
 
+# Built frontend (frontend/dist). Served at "/" when it exists, so one port serves UI + API.
+FRONTEND_DIST = Path(os.getenv("FRONTEND_DIST", REPO_ROOT / "frontend" / "dist"))
+
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]

@@ -3,7 +3,9 @@ import type {
   LabelingSession, Mode, Project, PromptPoint, SegmentResult, Stats, UploadResult,
 } from './types'
 
-const BASE = '/api'
+// Relative on purpose: resolves against the page URL, so a proxy prefix
+// such as /user/<name>/proxy/8000/ is kept.
+const BASE = 'api'
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {

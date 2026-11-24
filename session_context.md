@@ -1,6 +1,6 @@
 # Session context
 
-Read this first in a new session. Last updated: 2026-11-20.
+Read this first in a new session. Last updated: 2026-11-23.
 
 ## Project
 
@@ -26,11 +26,14 @@ Deliverables: report, repo + README, demo video, exported annotated dataset.
 - **Do not download or train models on the Windows dev machine.** All weights are produced on the Linux cloud machine. `*.onnx` and `*.pt` are git-ignored.
 - Daily progress goes in `diary/project_report_YYYY-MM-DD.md`.
 
-## Current state (end of 2026-11-20)
+## Current state (end of 2026-11-23)
 
-- MVP built. Backend: 9 pytest tests pass. Frontend `npm run build` passes. Browser smoke test passed for manual tools, autosave, effort logging and the stats page.
-- Not verified: SAM/YOLO inference with real weights, the Docker image build, the GPU path.
-- Plan: `plan.md` (milestones M0–M7). MVP covers M0–M5 apart from those unverified items. M6 (evaluation scripts) is next.
+- MVP built (2026-11-20). Backend: 9 tests pass. Frontend builds. Manual tools were smoke-tested in the browser.
+- **Linux machine:** a JupyterHub container (`jovyan`, `~/vault/AI-vision`). No Docker, an RTX A6000 (CUDA 13 driver), Python 3.12, Node 18 (run.sh installs Node 22 via nvm).
+- **Models exported and verified on the GPU** with `onnxruntime-gpu` 1.32: SAM 2.1 tiny gave IoU 0.969 on bus.jpg, and YOLO26n found the bus and 4 people. The weights are in `models/weights/` on Linux only.
+- `./run.sh` is the one-command launcher. It sets up whatever is missing, then serves UI + API on 127.0.0.1:8000. The UI uses hash routing and relative URLs so it works behind the Jupyter proxy (`/user/<name>/proxy/8000/`).
+- Not yet verified: `run.sh` on Linux, access through the Jupyter proxy, Smart select / Auto-label in the browser, the Docker build.
+- Next: M6, the evaluation scripts (click simulator NoC@85/90, mAP, user-study analysis).
 
 ## Key files
 
@@ -47,11 +50,14 @@ Deliverables: report, repo + README, demo video, exported annotated dataset.
 | `frontend/src/store/annotate.ts` | zustand store, undo/redo |
 | `frontend/src/lib/effort.ts` | Effort logger (how time per object is defined) |
 | `models/README.md` | Export steps, ONNX I/O contract, licenses |
+| `run.sh` | One-file Linux setup + launcher |
 | `research_notes/`, `reports/` | Market and model research |
 
 ## Commands
 
 ```bash
+./run.sh                                        # Linux, no Docker: setup + serve on :8000
+./run.sh check | test | dev | setup              # other modes
 docker compose up --build                       # http://localhost:8080
 cd backend && pytest                            # tests
 cd backend && uvicorn app.main:app --reload     # dev API :8000

@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from . import config
 from .db import init_db
@@ -29,3 +30,9 @@ for module in (projects, images, annotations, ai, events, stats, export):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# Mounted last so /api routes take precedence. Not present in the docker api
+# image (nginx serves the UI there).
+if config.FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=config.FRONTEND_DIST, html=True), name="ui")

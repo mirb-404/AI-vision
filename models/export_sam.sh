@@ -13,6 +13,11 @@ CKPT_DIR="$HERE/checkpoints"
 OUT_DIR="$HERE/weights"
 mkdir -p "$CKPT_DIR" "$OUT_DIR"
 
+if ! python -c "import sam2, samexporter" 2>/dev/null; then
+  echo "missing sam2/samexporter. Run: SAM2_BUILD_CUDA=0 pip install -r models/requirements-export.txt" >&2
+  exit 1
+fi
+
 CKPT="$CKPT_DIR/${MODEL_TYPE}.pt"
 if [ ! -f "$CKPT" ]; then
   # Official Meta checkpoint location used by facebookresearch/sam2 download_ckpts.sh
