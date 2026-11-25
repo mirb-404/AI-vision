@@ -6,12 +6,14 @@ import { AiSuggestionsToast, AiWorking } from '../components/AiActivity'
 import { AnnotationCanvas } from '../components/AnnotationCanvas'
 import { AnnotationList } from '../components/AnnotationList'
 import { NamePicker } from '../components/NamePicker'
+import { RemoveAiButton } from '../components/RemoveAiButton'
 import { SimilarSearch, type SimilarState } from '../components/SimilarSearch'
 import { ProposalPanel } from '../components/ProposalPanel'
 import { Toolbar, TOOLS } from '../components/Toolbar'
 import { HelpButton, Tour, useTour, type TourStep } from '../components/Tour'
 import { effort } from '../lib/effort'
 import { boxIou, boundingBox, nextColor, uid } from '../lib/geometry'
+import { isAiCleared, setAiCleared } from '../lib/aiCleared'
 import { loadSettings, saveSetting } from '../lib/settings'
 import { btnPrimary, btnSecondary, statusStyle } from '../lib/ui'
 import { useAnnotate, type Proposal, type Tool } from '../store/annotate'
@@ -333,9 +335,32 @@ export function AnnotatePage() {
 
   // Always-on assistant: suggest objects as soon as an image opens (AI mode only).
   useEffect(() => {
-    if (image && yoloReady && autoSuggest) void runDetector()
+    if (image && yoloReady && autoSuggest && !isAiCleared(projectId, image.id)) void runDetector()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image?.id, yoloReady, autoSuggest])
+
+  // ---- remove AI labels ---------------------------------------------------
+  const removedAi = useRef<Annotation[]>([])
+  const aiLabelCount = store.annotations.filter((a) => a.source === 'ai').length
+
+  /** Drop every untouched AI label (and pending suggestions) from the open image. */
+  const removeAiLabels = (): number => {
+    const ai = useAnnotate.getState().annotations.filter((a) => a.source === 'ai')
+    removedAi.current = ai
+    store.removeMany(ai.map((a) => a.id))
+    store.setProposals([])
+    // Do not let the always-on assistant label this image again on the next visit.
+    if (imageIdRef.current != null) setAiCleared(projectId, imageIdRef.current, true)
+    return ai.length
+  }
+
+  const undoRemoveAi = () => {
+    const back = removedAi.current
+    removedAi.current = []
+    const present = new Set(useAnnotate.getState().annotations.map((a) => a.id))
+    store.add(back.filter((a) => !present.has(a.id)))
+    if (imageIdRef.current != null) setAiCleared(projectId, imageIdRef.current, false)
+  }
 
   const changeAutoSuggest = (on: boolean) => {
     saveSetting(projectId, 'autoSuggest', on)
@@ -603,6 +628,7 @@ export function AnnotatePage() {
             <NamePicker labels={labels} lastId={activeLabelId}
                         onPick={(c) => void pickName(c)} onCancel={() => setPending(null)} />
           )}
+          <RemoveAiButton key={image?.id} count={aiLabelCount} onRemove={removeAiLabels} onUndo={undoRemoveAi} />
           <ToolToast tool={tool} />
           <ToolHint tool={tool} smartBusy={smartBusy} embedState={embedState}
                     hasPreview={!!store.smartPreview} onAccept={acceptSmart} onClear={store.clearSmart} />
@@ -710,6 +736,7 @@ const ANNOTATE_TOUR: TourStep[] = [
   { target: 'annotations', title: 'Objects on this image', body: 'Everything marked so far. Fix a name with the menu, remove a mark with ✕, or tap ⧉ so the AI marks every alike object in all images (mark one ball, it finds the others).' },
   { target: 'expert', title: 'Expert tools', body: 'Need more control? Turn this on for extra drawing tools, label setup, the confidence slider and keyboard shortcuts.' },
   { target: 'mode', title: 'AI-assisted vs manual', body: 'Manual turns the AI tools off. Time and clicks are logged per mode to measure the effort AI saves.' },
+  { target: 'remove-ai', title: 'Remove AI labels', body: 'Did the AI label things you do not want? This removes everything it added to this image in one go. Labels you made or fixed stay, and Undo brings them back.' },
   { target: 'save', title: 'Autosave', body: 'Every change saves by itself. There is no save button to forget.' },
   { target: 'download', title: 'Download annotated image', body: 'Saves this image as a JPEG with all its annotations drawn on.' },
   { target: 'done', title: 'Done', body: 'When everything is marked, press this. Your work is saved and the next unfinished image opens.' },

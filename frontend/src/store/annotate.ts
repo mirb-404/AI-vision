@@ -39,6 +39,8 @@ interface AnnotateState {
   replace: (removeId: string | null, items: Annotation[]) => void
   update: (id: string, change: Partial<Annotation>) => void
   remove: (id: string) => void
+  /** Remove several annotations as one undo step. */
+  removeMany: (ids: string[]) => void
   undo: () => void
   redo: () => void
   setDraftPolygon: (points: number[]) => void
@@ -99,6 +101,15 @@ export const useAnnotate = create<AnnotateState>((set, get) => {
       commit(get().annotations.map((a) => (a.id === id ? after : a)))
       effort.log('annotation_edited', { source_before: before.source, kind: before.kind,
                                         what: Object.keys(change) }, id)
+    },
+
+    removeMany: (ids) => {
+      const drop = new Set(ids)
+      const removed = get().annotations.filter((a) => drop.has(a.id))
+      if (!removed.length) return
+      commit(get().annotations.filter((a) => !drop.has(a.id)))
+      set({ selectedId: drop.has(get().selectedId ?? '') ? null : get().selectedId })
+      for (const a of removed) effort.log('annotation_deleted', { source: a.source, kind: a.kind, bulk: true }, a.id)
     },
 
     remove: (id) => {
