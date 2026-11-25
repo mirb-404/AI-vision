@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api } from '../api/client'
-import type { AiStatus, Annotation, BoxGeom, ImageInfo, Label, Mode, PolygonGeom } from '../api/types'
+import type { AiStatus, Annotation, BoxGeom, Detection, ImageInfo, Label, Mode, PolygonGeom } from '../api/types'
+import { AiSuggestionsToast, AiWorking } from '../components/AiActivity'
 import { AnnotationCanvas } from '../components/AnnotationCanvas'
 import { AnnotationList } from '../components/AnnotationList'
+import { NamePicker } from '../components/NamePicker'
 import { ProposalPanel } from '../components/ProposalPanel'
 import { Toolbar, TOOLS } from '../components/Toolbar'
 import { HelpButton, Tour, useTour, type TourStep } from '../components/Tour'
 import { effort } from '../lib/effort'
-import { nextColor, uid } from '../lib/geometry'
-import { loadSettings, saveSettings } from '../lib/settings'
+import { boxIou, boundingBox, nextColor, uid } from '../lib/geometry'
+import { loadSettings, saveSetting } from '../lib/settings'
 import { btnPrimary, btnSecondary, statusStyle } from '../lib/ui'
 import { useAnnotate, type Proposal, type Tool } from '../store/annotate'
 
 type SaveState = 'saved' | 'saving' | 'error'
+
+/** Detector boxes at or above this score are added without asking (when auto-accept is on). */
+const AUTO_ACCEPT = 0.5
+/** Minimum detector score used to name a shape the user drew. */
+const NAME_MIN_SCORE = 0.25
 
 export function AnnotatePage() {
   const params = useParams()
@@ -32,6 +39,14 @@ export function AnnotatePage() {
   const [embedState, setEmbedState] = useState<'idle' | 'running' | 'ready' | 'failed'>('idle')
   const [smartBusy, setSmartBusy] = useState(false)
   const [detecting, setDetecting] = useState(false)
+  const [autoSuggest, setAutoSuggest] = useState(() => loadSettings(projectId).autoSuggest)
+  const [autoAccept, setAutoAccept] = useState(() => loadSettings(projectId).autoAccept)
+  const [expert, setExpert] = useState(() => loadSettings(projectId).expert)
+  const [suggested, setSuggested] = useState({ added: 0, review: 0, nonce: 0 })
+  /** New shape waiting for the user to name it (the 'What is this?' card). */
+  const [pending, setPending] = useState<{ draft: Annotation; tool: string } | null>(null)
+  /** Every detection for the open image (also low-score ones), used to name drawn shapes. */
+  const detectionsRef = useRef<Detection[]>([])
 
   const store = useAnnotate()
   const { version, tool, activeLabelId, smartPoints, smartBox } = store
@@ -80,7 +95,7 @@ export function AnnotatePage() {
   }, [projectId, mode])
 
   const changeMode = (next: Mode) => {
-    saveSettings(projectId, { ...loadSettings(projectId), mode: next })
+    saveSetting(projectId, 'mode', next)
     if (next === 'manual') {
       store.setProposals([])
       if (tool === 'smart') store.setTool('select')
@@ -120,6 +135,9 @@ export function AnnotatePage() {
     let cancelled = false
     setImage(null)
     setEmbedState('idle')
+    setDetecting(false)
+    setPending(null)
+    detectionsRef.current = []
     Promise.all([api.getImage(imageId), api.getAnnotations(imageId)])
       .then(([info, anns]) => {
         if (cancelled) return
@@ -167,40 +185,73 @@ export function AnnotatePage() {
   }, [image, smartPoints, smartBox])
 
   // ---- creating annotations ----------------------------------------------
-  const requireLabel = (): number | null => {
-    const id = useAnnotate.getState().activeLabelId
-    if (id == null) setError('Add a label on the project page, then pick it in the side panel.')
-    return id
-  }
-
-  const createBox = (_kind: 'box', geometry: BoxGeom, tool: string) => {
-    const labelId = requireLabel()
-    if (labelId == null) return
-    const a: Annotation = { id: uid(), kind: 'box', geometry, label_id: labelId, source: 'manual', score: null }
+  /** Add a finished shape and drop detector suggestions it makes redundant. */
+  const commitNew = (a: Annotation, tool: string) => {
     store.add([a])
     effort.commit([a], tool)
+    const box = boundingBox(a)
+    for (const p of useAnnotate.getState().proposals) {
+      if (boxIou(p.box, box) >= 0.5) store.removeProposal(p.id)
+    }
   }
 
-  const createPolygon = (geometry: PolygonGeom) => {
-    const labelId = requireLabel()
+  /** The detector's name for whatever lies under this box, if it saw it. */
+  const aiNameFor = (box: BoxGeom): string | null => {
+    let best: string | null = null
+    let bestIou = 0.5
+    for (const d of detectionsRef.current) {
+      const v = boxIou(box, d.box)
+      if (d.score >= NAME_MIN_SCORE && v >= bestIou) {
+        best = d.label
+        bestIou = v
+      }
+    }
+    return best
+  }
+
+  /**
+   * Name a new shape. Simple view: the AI's name if it recognised the object, otherwise ask.
+   * Expert view: the active label, otherwise ask.
+   */
+  const place = async (draft: Annotation, tool: string) => {
+    const id = imageIdRef.current
+    const guess = expert ? null : aiNameFor(boundingBox(draft))
+    const labelId = guess ? await labelFor(guess) : expert ? useAnnotate.getState().activeLabelId : null
+    if (imageIdRef.current !== id) return
+    if (labelId == null) setPending({ draft, tool })
+    else commitNew({ ...draft, label_id: labelId }, tool)
+  }
+
+  const pickName = async (choice: { id: number } | { name: string }) => {
+    if (!pending) return
+    const labelId = 'id' in choice ? choice.id : await labelFor(choice.name)
     if (labelId == null) return
-    const a: Annotation = { id: uid(), kind: 'polygon', geometry, label_id: labelId, source: 'manual', score: null }
+    store.setActiveLabel(labelId)
+    commitNew({ ...pending.draft, label_id: labelId }, pending.tool)
+    setPending(null)
+  }
+
+  const createBox = (_kind: 'box', geometry: BoxGeom, tool: string) =>
+    void place({ id: uid(), kind: 'box', geometry, label_id: -1, source: 'manual', score: null }, tool)
+
+  const createPolygon = (geometry: PolygonGeom) => {
     store.setDraftPolygon([])
-    store.add([a])
-    effort.commit([a], 'polygon')
+    void place({ id: uid(), kind: 'polygon', geometry, label_id: -1, source: 'manual', score: null }, 'polygon')
   }
 
   const acceptSmart = () => {
     const { smartPreview, smartReplaceId, annotations: anns } = useAnnotate.getState()
     if (!smartPreview || smartPreview.polygon.length < 6) return
     const replaced = anns.find((a) => a.id === smartReplaceId)
-    const labelId = replaced?.label_id ?? requireLabel()
-    if (labelId == null) return
     const a: Annotation = { id: uid(), kind: 'polygon', geometry: { points: smartPreview.polygon },
-                            label_id: labelId, source: 'ai', score: smartPreview.score }
-    store.replace(replaced?.id ?? null, [a])
+                            label_id: replaced?.label_id ?? -1, source: 'ai', score: smartPreview.score }
     store.clearSmart()
-    effort.commit([a], replaced ? 'refine' : 'smart')
+    if (replaced) {
+      store.replace(replaced.id, [a])
+      effort.commit([a], 'refine')
+    } else {
+      void place(a, 'smart')
+    }
   }
 
   /** Map a detector class name to a project label, creating the label if needed. */
@@ -217,19 +268,22 @@ export function AnnotatePage() {
     }
   }
 
-  const acceptProposals = async (items: Proposal[]) => {
+  /** Turn suggestions into annotations. auto = added by the assistant without a click. */
+  const acceptProposals = async (items: Proposal[], auto = false) => {
+    const id = imageIdRef.current
     const created: Annotation[] = []
     for (const p of items) {
       const labelId = await labelFor(p.label)
+      if (imageIdRef.current !== id) return // image changed while labels were being created
       if (labelId == null) continue
       const a: Annotation = { id: uid(), kind: 'box', geometry: p.box, label_id: labelId, source: 'ai', score: p.score }
       created.push(a)
       store.removeProposal(p.id)
-      effort.log('proposal_accepted', { score: p.score, label: p.label, class_id: p.class_id }, a.id)
+      effort.log('proposal_accepted', { score: p.score, label: p.label, class_id: p.class_id, auto }, a.id)
     }
     if (created.length) {
       store.add(created)
-      effort.commit(created, 'proposal')
+      effort.commit(created, auto ? 'auto' : 'proposal')
     }
   }
 
@@ -240,18 +294,67 @@ export function AnnotatePage() {
     }
   }
 
+  /** Run YOLO on the open image. Boxes that overlap an existing annotation are not proposed again. */
   const runDetector = async () => {
     if (!image) return
+    const id = image.id
     setDetecting(true)
     try {
-      const res = await api.detect(image.id, 0.05)
-      store.setProposals(res.detections.map((d) => ({ ...d, id: uid() })))
+      const res = await api.detect(id, 0.05)
+      if (imageIdRef.current !== id) return // user moved to another image meanwhile
+      const existing = useAnnotate.getState().annotations.map(boundingBox)
+      const fresh = res.detections
+        .filter((d) => !existing.some((b) => boxIou(b, d.box) >= 0.5))
+        .map((d) => ({ ...d, id: uid() }))
+      detectionsRef.current = res.detections
+      store.setProposals(fresh)
+      // Confident boxes are added straight away; only unsure ones are left for the user to check.
+      const sure = autoAccept ? fresh.filter((p) => p.score >= AUTO_ACCEPT) : []
+      if (sure.length) await acceptProposals(sure, true)
+      if (imageIdRef.current !== id) return
+      const { confThreshold, proposals } = useAnnotate.getState()
+      const review = proposals.filter((p) => p.score >= confThreshold).length
+      setSuggested((s) => ({ added: sure.length, review, nonce: s.nonce + 1 }))
     } catch (e) {
       setError(`YOLO: ${(e as Error).message}`)
     } finally {
-      setDetecting(false)
+      if (imageIdRef.current === id) setDetecting(false)
     }
   }
+
+  // Always-on assistant: suggest objects as soon as an image opens (AI mode only).
+  useEffect(() => {
+    if (image && yoloReady && autoSuggest) void runDetector()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [image?.id, yoloReady, autoSuggest])
+
+  const changeAutoSuggest = (on: boolean) => {
+    saveSetting(projectId, 'autoSuggest', on)
+    setAutoSuggest(on)
+  }
+
+  const changeAutoAccept = (on: boolean) => {
+    saveSetting(projectId, 'autoAccept', on)
+    setAutoAccept(on)
+  }
+
+  const changeExpert = (on: boolean) => {
+    saveSetting(projectId, 'expert', on)
+    setExpert(on)
+    if (!on && tool === 'polygon') store.setTool(samReady ? 'smart' : 'box')
+  }
+
+  // Simple view starts on Magic select: one tap on an object is the easiest way to label it.
+  useEffect(() => {
+    if (samReady && !expert && useAnnotate.getState().tool === 'select') store.setTool('smart')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [samReady])
+
+  const aiActivity = mode !== 'ai' ? null
+    : detecting ? 'AI is finding objects…'
+    : smartBusy ? 'AI is tracing the outline…'
+    : embedState === 'running' ? 'AI is reading the image…'
+    : null
 
   // ---- navigation ---------------------------------------------------------
   const index = images.findIndex((i) => i.id === imageId)
@@ -303,6 +406,7 @@ export function AnnotatePage() {
 
     if (tools[key]) {
       if (key === 's' && !samReady) return
+      if (key === 'p' && !expert) return
       s.setTool(tools[key])
     } else if (e.key === 'Enter') {
       if (s.tool === 'polygon' && s.draftPolygon.length >= 6) createPolygon({ points: s.draftPolygon })
@@ -355,20 +459,30 @@ export function AnnotatePage() {
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2 md:gap-3">
-          <div data-tour="mode" className="flex rounded-lg border border-neutral-800 bg-neutral-900 p-0.5 text-xs">
+          {expert && <div data-tour="mode" className="flex rounded-lg border border-neutral-800 bg-neutral-900 p-0.5 text-xs">
             {(['ai', 'manual'] as Mode[]).map((m) => (
               <button key={m} onClick={() => changeMode(m)}
                       className={`rounded-md px-2 py-1 transition duration-200 ${mode === m ? 'bg-neutral-100 text-neutral-950 shadow-sm' : 'text-neutral-400 hover:text-neutral-100'}`}>
                 {m === 'ai' ? 'AI-assisted' : 'Manual'}
               </button>
             ))}
-          </div>
+          </div>}
           <span data-tour="save" className={`text-xs ${saveState === 'error' ? 'text-red-400' : 'text-neutral-500'}`}>
-            {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : 'Saved'}
+            {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed' : 'Saved ✓'}
           </span>
-          <button data-tour="download" className={btnSecondary} onClick={downloadAnnotated} disabled={!image}
-                  title="Download this image with its annotations drawn on">⤓ Image</button>
-          <button data-tour="done" className={btnPrimary} onClick={markDone} disabled={!image}>Mark done ✓</button>
+          <label data-tour="expert" title="Show every tool and setting"
+                 className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-neutral-400 hover:text-neutral-100">
+            <input type="checkbox" checked={expert} onChange={(e) => changeExpert(e.target.checked)}
+                   className="accent-white" />
+            Expert tools
+          </label>
+          {expert && (
+            <button data-tour="download" className={btnSecondary} onClick={downloadAnnotated} disabled={!image}
+                    title="Download this image with its annotations drawn on">⤓ Image</button>
+          )}
+          <button data-tour="done" className={btnPrimary} onClick={markDone} disabled={!image}>
+            {expert ? 'Mark done ✓' : 'Done, next image ›'}
+          </button>
           <HelpButton onClick={tour.start} />
         </div>
       </header>
@@ -381,7 +495,7 @@ export function AnnotatePage() {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <Toolbar tool={tool} onTool={store.setTool} smartEnabled={samReady}
+        <Toolbar tool={tool} onTool={store.setTool} smartEnabled={samReady} simple={!expert}
                  onUndo={store.undo} onRedo={store.redo}
                  canUndo={store.past.length > 0} canRedo={store.future.length > 0} />
 
@@ -398,13 +512,19 @@ export function AnnotatePage() {
           ) : (
             <div className="flex h-full items-center justify-center text-neutral-500">Loading…</div>
           )}
+          <AiWorking label={aiActivity} />
+          <AiSuggestionsToast added={suggested.added} review={suggested.review} nonce={suggested.nonce} />
+          {pending && (
+            <NamePicker labels={labels} lastId={activeLabelId}
+                        onPick={(c) => void pickName(c)} onCancel={() => setPending(null)} />
+          )}
           <ToolToast tool={tool} />
           <ToolHint tool={tool} smartBusy={smartBusy} embedState={embedState}
                     hasPreview={!!store.smartPreview} onAccept={acceptSmart} onClear={store.clearSmart} />
         </div>
 
         <aside className="max-h-[40dvh] w-full shrink-0 space-y-4 overflow-y-auto border-t border-neutral-800 p-3 md:max-h-none md:w-80 md:border-l md:border-t-0">
-          <section data-tour="labels" className="space-y-1.5">
+          {expert && <section data-tour="labels" className="space-y-1.5">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Labels</h3>
             {labels.length === 0 && (
               <p className="text-xs text-neutral-500">No labels. Add some on the project page.</p>
@@ -420,7 +540,7 @@ export function AnnotatePage() {
                 </button>
               ))}
             </div>
-          </section>
+          </section>}
 
           {mode === 'ai' ? (
             <div data-tour="autolabel">
@@ -428,6 +548,11 @@ export function AnnotatePage() {
               available={yoloReady}
               detail={aiStatus?.yolo.detail}
               detecting={detecting}
+              simple={!expert}
+              autoSuggest={autoSuggest}
+              onAutoSuggest={changeAutoSuggest}
+              autoAccept={autoAccept}
+              onAutoAccept={changeAutoAccept}
               onDetect={runDetector}
               onAccept={acceptProposals}
               onReject={rejectProposals}
@@ -440,10 +565,10 @@ export function AnnotatePage() {
           )}
 
           <div data-tour="annotations">
-            <AnnotationList labels={labels} samEnabled={samReady} />
+            <AnnotationList labels={labels} samEnabled={samReady} simple={!expert} />
           </div>
 
-          <details className="text-xs text-neutral-400">
+          {expert && <details className="text-xs text-neutral-400">
             <summary className="cursor-pointer text-neutral-300">Shortcuts</summary>
             <ul className="mt-2 space-y-0.5">
               <li>V select · B box · P polygon · S smart (SAM) · H pan · F fit</li>
@@ -455,7 +580,7 @@ export function AnnotatePage() {
               <li>Alt+click a polygon vertex to remove it</li>
               <li>? show the tutorial</li>
             </ul>
-          </details>
+          </details>}
         </aside>
       </div>
 
@@ -490,17 +615,18 @@ function ToolToast({ tool }: { tool: Tool }) {
 }
 
 const ANNOTATE_TOUR: TourStep[] = [
-  { target: 'canvas', title: 'Your image', body: 'Annotations are drawn right on the image. Each one shows its label name in a coloured tag.' },
+  { target: 'canvas', title: 'Your image', body: 'Everything you mark shows up right on the picture, with its name in a coloured tag. The AI starts looking for objects as soon as the image opens.' },
   ...TOOLS.map((t) => ({ target: `tool-${t.id}`, title: `${t.icon}  ${t.label}`, body: `${t.tip} Shortcut: ${t.key}.` })),
   { target: 'history', title: 'Undo / redo', body: 'Step back or forward through your edits. Ctrl+Z and Ctrl+Y work too.' },
   { target: 'zoom', title: 'Zoom', body: 'Zoom in and out, or press Fit (F) to see the whole image again.' },
   { target: 'labels', title: 'Labels', body: 'Pick the label for new shapes. Keys 1-9 choose a label and relabel the selected shape.' },
-  { target: 'autolabel', title: 'AI pre-labels (YOLO)', body: 'Auto-label finds objects and proposes boxes. Accept them one by one or all at once; accepted boxes are saved as annotations.' },
-  { target: 'annotations', title: 'Annotation list', body: 'Every shape on this image. Change its label, refine a box into a mask with the ✦ button, or delete it.' },
+  { target: 'autolabel', title: 'Your AI assistant', body: 'The AI checks every image you open. Objects it is sure about are marked for you. When it is unsure it asks: answer Yes or No. A glowing border means it is working.' },
+  { target: 'annotations', title: 'Objects on this image', body: 'Everything marked so far. Fix a name with the menu, or remove a mark with ✕.' },
+  { target: 'expert', title: 'Expert tools', body: 'Need more control? Turn this on for extra drawing tools, label setup, the confidence slider and keyboard shortcuts.' },
   { target: 'mode', title: 'AI-assisted vs manual', body: 'Manual turns the AI tools off. Time and clicks are logged per mode to measure the effort AI saves.' },
-  { target: 'save', title: 'Autosave', body: 'Your work saves automatically after every change.' },
+  { target: 'save', title: 'Autosave', body: 'Every change saves by itself. There is no save button to forget.' },
   { target: 'download', title: 'Download annotated image', body: 'Saves this image as a JPEG with all its annotations drawn on.' },
-  { target: 'done', title: 'Mark done', body: 'Marks the image finished and jumps to the next unfinished one.' },
+  { target: 'done', title: 'Done', body: 'When everything is marked, press this. Your work is saved and the next unfinished image opens.' },
   { target: 'nav', title: 'Previous / next', body: 'Move between images. The , and . keys do the same.' },
   { target: 'help', title: 'Replay this tour', body: 'Tap ? (or press ?) any time to see this tutorial again.' },
 ]
@@ -516,14 +642,14 @@ function ToolHint({ tool, smartBusy, embedState, hasPreview, onAccept, onClear }
   if (tool !== 'smart') return null
   return (
     <div className="absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 rounded-md bg-neutral-800/90 px-3 py-1.5 text-xs text-neutral-200 shadow">
-      {embedState === 'running' ? 'Preparing image for SAM…'
-        : smartBusy ? 'Segmenting…'
-        : hasPreview ? 'Add points to refine, Enter to accept'
-        : 'Click an object or drag a box'}
+      {embedState === 'running' ? 'Getting the image ready…'
+        : smartBusy ? 'Outlining…'
+        : hasPreview ? 'Outline wrong? Tap the part that is missing.'
+        : 'Tap any object. AI outlines it for you.'}
       {hasPreview && (
         <>
-          <button className="rounded bg-cyan-600 px-2 py-0.5 text-white hover:bg-cyan-500" onClick={onAccept}>Accept</button>
-          <button className="rounded px-2 py-0.5 hover:bg-neutral-700" onClick={onClear}>Clear</button>
+          <button className="rounded bg-cyan-600 px-2 py-0.5 text-white hover:bg-cyan-500" onClick={onAccept}>✓ Looks right</button>
+          <button className="rounded px-2 py-0.5 hover:bg-neutral-700" onClick={onClear}>Start over</button>
         </>
       )}
     </div>

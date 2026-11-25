@@ -1,0 +1,4 @@
+# Training and evaluation only (Linux GPU machine). Not needed to run the app.
+ultralytics>=8.3
+pycocotools>=2.0.7
+pyyaml>=6.0

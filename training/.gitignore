@@ -1,0 +1,4 @@
+# Large or regenerable: training runs (weights, caches) and prepared datasets.
+# training/results/ is committed so the reported numbers can be checked.
+runs/
+datasets/

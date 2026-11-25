@@ -12,6 +12,23 @@ export function normalizeBox(x1: number, y1: number, x2: number, y2: number): Bo
   return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) }
 }
 
+/** Axis-aligned bounding box of a box or polygon annotation. */
+export function boundingBox(a: Annotation): BoxGeom {
+  if (a.kind === 'box') return a.geometry
+  const p = a.geometry.points
+  const xs = p.filter((_, i) => i % 2 === 0)
+  const ys = p.filter((_, i) => i % 2 === 1)
+  return normalizeBox(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys))
+}
+
+export function boxIou(a: BoxGeom, b: BoxGeom): number {
+  const iw = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
+  const ih = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+  const inter = iw * ih
+  const union = a.w * a.h + b.w * b.h - inter
+  return union > 0 ? inter / union : 0
+}
+
 export function vertexCount(a: Annotation): number {
   return a.kind === 'box' ? 2 : a.geometry.points.length / 2
 }

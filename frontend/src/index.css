@@ -40,6 +40,72 @@
   }
 }
 
+/* ---- AI activity: gradient glow shown whenever a model is working ---------------------- */
+@property --ai-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.ai-gradient {
+  background: conic-gradient(from var(--ai-angle), #22d3ee, #818cf8, #e879f9, #fb923c, #facc15, #22d3ee);
+  animation: ai-spin 2.6s linear infinite;
+}
+
+/* Thin rotating ring around the canvas edge. */
+.ai-ring {
+  padding: 3px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* Soft halo behind the ring. */
+.ai-halo {
+  filter: blur(22px);
+  opacity: 0.45;
+  -webkit-mask: radial-gradient(closest-side, transparent 78%, #000);
+  mask: radial-gradient(closest-side, transparent 78%, #000);
+}
+
+/* Diagonal light band sweeping over the image. */
+.ai-sweep {
+  background: linear-gradient(105deg, transparent 35%, rgb(167 139 250 / 0.16) 45%,
+                              rgb(34 211 238 / 0.22) 50%, rgb(232 121 249 / 0.16) 55%, transparent 65%);
+  background-size: 250% 100%;
+  animation: ai-sweep 1.8s ease-in-out infinite;
+}
+
+/* Text filled with a moving gradient. */
+.ai-text {
+  background: linear-gradient(90deg, #67e8f9, #a5b4fc, #f0abfc, #fdba74, #67e8f9);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ai-shimmer 2.2s linear infinite;
+}
+
+.ai-sparkle {
+  display: inline-block;
+  animation: ai-twinkle 1.4s ease-in-out infinite;
+}
+
+@keyframes ai-spin {
+  to { --ai-angle: 360deg; }
+}
+@keyframes ai-sweep {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+@keyframes ai-shimmer {
+  to { background-position: -200% 0; }
+}
+@keyframes ai-twinkle {
+  0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  50% { transform: scale(1.3) rotate(20deg); opacity: 0.7; }
+}
+
 html, body, #root {
   height: 100%;
 }

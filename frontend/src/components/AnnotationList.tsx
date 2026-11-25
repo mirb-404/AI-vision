@@ -2,21 +2,25 @@ import type { Label, Source } from '../api/types'
 import { useAnnotate } from '../store/annotate'
 
 const SOURCE_BADGE: Record<Source, { text: string; cls: string }> = {
-  manual: { text: 'manual', cls: 'bg-neutral-700 text-neutral-200' },
-  ai: { text: 'AI', cls: 'bg-cyan-500/20 text-cyan-300' },
-  ai_edited: { text: 'AI · edited', cls: 'bg-amber-500/20 text-amber-300' },
+  manual: { text: 'you', cls: 'bg-neutral-700 text-neutral-200' },
+  ai: { text: '✦ AI', cls: 'bg-cyan-500/20 text-cyan-300' },
+  ai_edited: { text: '✦ AI · fixed', cls: 'bg-amber-500/20 text-amber-300' },
 }
 
-export function AnnotationList({ labels, samEnabled }: { labels: Label[]; samEnabled: boolean }) {
+export function AnnotationList({ labels, samEnabled, simple }: { labels: Label[]; samEnabled: boolean; simple: boolean }) {
   const { annotations, selectedId, select, update, remove, startRefine } = useAnnotate()
   const colorOf = (id: number) => labels.find((l) => l.id === id)?.color ?? '#94a3b8'
 
   return (
     <section className="space-y-1.5">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
-        Annotations ({annotations.length})
+        {simple ? 'Objects on this image' : 'Annotations'} ({annotations.length})
       </h3>
-      {annotations.length === 0 && <p className="text-xs text-neutral-500">Nothing labeled on this image yet.</p>}
+      {annotations.length === 0 && (
+        <p className="text-xs text-neutral-500">
+          {simple ? 'Nothing marked yet. Tap an object with ✦ Magic select, or wait for the AI.' : 'Nothing labeled on this image yet.'}
+        </p>
+      )}
       <ul className="space-y-1">
         {annotations.map((a) => {
           const badge = SOURCE_BADGE[a.source]
@@ -30,10 +34,10 @@ export function AnnotationList({ labels, samEnabled }: { labels: Label[]; samEna
                       className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5">
                 {labels.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
-              <span className="text-neutral-500">{a.kind === 'box' ? '▭' : '⬠'}</span>
+              {!simple && <span className="text-neutral-500">{a.kind === 'box' ? '▭' : '⬠'}</span>}
               <span className={`rounded px-1 py-0.5 ${badge.cls}`}>{badge.text}</span>
               {a.kind === 'box' && samEnabled && (
-                <button title="Refine box into a mask with SAM" className="text-cyan-300 hover:text-cyan-200"
+                <button title="Outline this object exactly with AI" className="text-cyan-300 hover:text-cyan-200"
                         onClick={(e) => { e.stopPropagation(); startRefine(a.id, a.geometry) }}>✦</button>
               )}
               <button title="Delete" className="text-neutral-500 hover:text-red-400"
