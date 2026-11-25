@@ -93,18 +93,15 @@ class SamModel:
                 self._cache.popitem(last=False)
         return feats, size, latency, False
 
-    def segment(
+    def _decode(
         self,
-        key: object,
-        image_path: Path,
+        feats: dict[str, np.ndarray],
+        h: int,
+        w: int,
         points: list[tuple[float, float, int]],
         box: tuple[float, float, float, float] | None,
-    ) -> tuple[list[float], float, float, float]:
-        """Prompt -> polygon. points: (x, y, label 1=fg/0=bg); box: (x1, y1, x2, y2).
-
-        Returns (polygon, predicted IoU score, decoder_ms, encoder_ms).
-        """
-        feats, (h, w), embed_ms, _ = self.embed(key, image_path)
+    ) -> tuple[np.ndarray, float, float]:
+        """Run the decoder on cached features. Returns (mask (h, w) bool, predicted IoU, decoder_ms)."""
         sx, sy, _, _ = self._scale(w, h)
 
         coords = [[x * sx, y * sy] for x, y, _ in points]
@@ -142,6 +139,20 @@ class SamModel:
         scores = np.asarray(scores).reshape(-1)
         best = int(scores.argmax()) if scores.size == masks.shape[0] else 0
         mask = self._mask_to_original(masks[best].astype(np.float32), w, h)
-        polygon = mask_to_polygon(mask > 0)
         score = float(scores[best]) if scores.size else 0.0
-        return polygon, score, decode_ms, embed_ms
+        return mask > 0, score, decode_ms
+
+    def segment(
+        self,
+        key: object,
+        image_path: Path,
+        points: list[tuple[float, float, int]],
+        box: tuple[float, float, float, float] | None,
+    ) -> tuple[list[float], float, float, float]:
+        """Prompt -> polygon. points: (x, y, label 1=fg/0=bg); box: (x1, y1, x2, y2).
+
+        Returns (polygon, predicted IoU score, decoder_ms, encoder_ms).
+        """
+        feats, (h, w), embed_ms, _ = self.embed(key, image_path)
+        mask, score, decode_ms = self._decode(feats, h, w, points, box)
+        return mask_to_polygon(mask), score, decode_ms, embed_ms

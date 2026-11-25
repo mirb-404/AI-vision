@@ -14,7 +14,7 @@ export function AiWorking({ label }: { label: string | null }) {
 
   return (
     <div aria-hidden={!active}
-         className={`pointer-events-none absolute inset-0 z-10 transition-opacity duration-300 ${active ? 'opacity-100' : 'opacity-0'}`}>
+         className={`pointer-events-none absolute inset-0 z-10 transition-opacity duration-700 ease-in-out ${active ? 'opacity-100' : 'opacity-0'}`}>
       {(active || shown) && (
         <>
           <div className="ai-gradient ai-halo absolute inset-0" />
@@ -37,7 +37,7 @@ export function AiSuggestionsToast({ added, review, nonce }: { added: number; re
   if (nonce === first.current) return null
   return (
     <div key={nonce} role="status"
-         className="pointer-events-none absolute left-1/2 top-14 z-20 animate-toast rounded-full p-px shadow-xl shadow-black/50">
+         className="pointer-events-none absolute left-1/2 top-14 z-20 animate-toast-soft rounded-full p-px shadow-xl shadow-black/50">
       <div className="ai-gradient absolute inset-0 rounded-full" />
       <div className="relative flex items-center gap-2 rounded-full bg-neutral-950 px-3.5 py-1.5 text-xs">
         <span className="ai-sparkle ai-text">✦</span>

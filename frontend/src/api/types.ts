@@ -99,6 +99,8 @@ export interface ModelStatus {
 export interface AiStatus {
   sam: ModelStatus
   yolo: ModelStatus
+  /** OWLv2: find every object of the same kind as a marked example. */
+  owl?: ModelStatus
 }
 
 export interface LabelingSession {
@@ -156,4 +158,17 @@ export interface Stats {
     edit_rate: number | null
   }
   inference_ms: Record<string, Summary>
+}
+
+/** One object found by the "find alike objects" search. id is set when the server saved it. */
+export interface SimilarRegion {
+  polygon: number[]
+  box: BoxGeom
+  score: number
+  id: string | null
+}
+
+export interface SimilarResult {
+  regions: SimilarRegion[]
+  latency_ms: number
 }

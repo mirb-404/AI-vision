@@ -20,6 +20,8 @@ SAM_DECODER = MODELS_DIR / os.getenv("SAM_DECODER", "sam_decoder.onnx")
 # "sam1": SAM v1 / MobileSAM export (longest side 1024, zero padding).
 SAM_VARIANT = os.getenv("SAM_VARIANT", "sam2")
 YOLO_MODEL = MODELS_DIR / os.getenv("YOLO_MODEL", "yolo.onnx")
+# OWLv2 image-guided detection for "find alike objects" (models/export_owlv2.py).
+OWL_MODEL = MODELS_DIR / os.getenv("OWL_MODEL", "owlv2.onnx")
 
 # Comma-separated ONNX Runtime providers, tried in order.
 ORT_PROVIDERS = [p.strip() for p in os.getenv("ORT_PROVIDERS", "CPUExecutionProvider").split(",") if p.strip()]

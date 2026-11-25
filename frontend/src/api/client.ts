@@ -1,6 +1,6 @@
 import type {
   AiStatus, Annotation, AutoLabelResult, BoxGeom, DetectResult, EffortEvent, ImageInfo, ImageStatus, Label,
-  LabelingSession, Mode, Project, PromptPoint, SegmentResult, Stats, UploadResult,
+  LabelingSession, Mode, PolygonGeom, Project, PromptPoint, SegmentResult, SimilarResult, Stats, UploadResult,
 } from './types'
 
 // Relative on purpose: resolves against the page URL, so a proxy prefix
@@ -67,6 +67,11 @@ export const api = {
   embed: (imageId: number) => request<{ latency_ms: number; cached: boolean }>(`/images/${imageId}/embed`, { method: 'POST' }),
   segment: (imageId: number, points: PromptPoint[], box: BoxGeom | null) =>
     request<SegmentResult>(`/images/${imageId}/segment`, json('POST', { points, box })),
+  /** Regions in imageId that look like the example (box or polygon) marked on sourceImageId. */
+  findSimilar: (imageId: number, body: { source_image_id: number; label_id: number; save: boolean;
+                                         box?: BoxGeom; polygon?: PolygonGeom['points']; strictness?: number }) =>
+    request<SimilarResult>(`/images/${imageId}/similar`, json('POST', body)),
+  undoSimilar: (ids: string[]) => request<{ deleted: number }>('/similar/undo', json('POST', { ids })),
   detect: (imageId: number, conf = 0.1) => request<DetectResult>(`/images/${imageId}/detect`, json('POST', { conf })),
   autoLabelProject: (projectId: number, conf: number, skipLabeled: boolean) =>
     request<AutoLabelResult>(`/projects/${projectId}/auto-label`, json('POST', { conf, skip_labeled: skipLabeled })),

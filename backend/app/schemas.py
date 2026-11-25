@@ -177,6 +177,7 @@ class ModelStatus(BaseModel):
 class AiStatus(BaseModel):
     sam: ModelStatus
     yolo: ModelStatus
+    owl: ModelStatus  # OWLv2, find alike objects
 
 
 class SessionCreate(BaseModel):
@@ -203,3 +204,44 @@ class EventIn(BaseModel):
 
 class EventsIn(BaseModel):
     events: list[EventIn] = Field(max_length=1000)
+
+
+class SimilarRequest(BaseModel):
+    """Find objects alike one marked example (box or polygon on the source image) in this image.
+
+    Found objects come back (and are saved) as the same kind as the example: box or polygon.
+    """
+    source_image_id: int
+    box: Box | None = None
+    polygon: list[float] | None = Field(default=None, max_length=20000)
+    label_id: int
+    # 0 = loose (more, rougher matches) ... 1 = strict (only close matches)
+    strictness: float = Field(default=0.5, ge=0.0, le=1.0)
+    # False: only return the regions (the UI adds them to the open image itself).
+    save: bool = True
+
+    @model_validator(mode="after")
+    def need_region(self) -> "SimilarRequest":
+        if self.box is None and (self.polygon is None or len(self.polygon) < 6 or len(self.polygon) % 2):
+            raise ValueError("give a box or a polygon with at least 3 points")
+        return self
+
+
+class SimilarRegion(BaseModel):
+    polygon: list[float]
+    box: Box
+    score: float
+    id: str | None = None  # annotation id when saved
+
+
+class SimilarResponse(BaseModel):
+    regions: list[SimilarRegion]
+    latency_ms: float
+
+
+class UndoAiRequest(BaseModel):
+    ids: list[str] = Field(max_length=10000)
+
+
+class UndoAiResponse(BaseModel):
+    deleted: int

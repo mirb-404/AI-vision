@@ -6,6 +6,7 @@ import { AiSuggestionsToast, AiWorking } from '../components/AiActivity'
 import { AnnotationCanvas } from '../components/AnnotationCanvas'
 import { AnnotationList } from '../components/AnnotationList'
 import { NamePicker } from '../components/NamePicker'
+import { SimilarSearch, type SimilarState } from '../components/SimilarSearch'
 import { ProposalPanel } from '../components/ProposalPanel'
 import { Toolbar, TOOLS } from '../components/Toolbar'
 import { HelpButton, Tour, useTour, type TourStep } from '../components/Tour'
@@ -47,6 +48,11 @@ export function AnnotatePage() {
   const [pending, setPending] = useState<{ draft: Annotation; tool: string } | null>(null)
   /** Every detection for the open image (also low-score ones), used to name drawn shapes. */
   const detectionsRef = useRef<Detection[]>([])
+  /** "Find alike objects": the example shape, and the search card state. */
+  const exampleRef = useRef<{ imageId: number; annotation: Annotation } | null>(null)
+  const [similar, setSimilar] = useState<SimilarState | null>(null)
+  const similarStop = useRef(false)
+  const similarIds = useRef<string[]>([])
 
   const store = useAnnotate()
   const { version, tool, activeLabelId, smartPoints, smartBox } = store
@@ -58,6 +64,8 @@ export function AnnotatePage() {
 
   const samReady = mode === 'ai' && !!aiStatus?.sam.available
   const yoloReady = mode === 'ai' && !!aiStatus?.yolo.available
+  /** OWLv2 present: "find alike objects" (mark one, the AI marks every object of that kind). */
+  const alikeReady = mode === 'ai' && !!aiStatus?.owl?.available
 
   // ---- project data ------------------------------------------------------
   const setLabelList = (list: Label[]) => {
@@ -189,6 +197,7 @@ export function AnnotatePage() {
   const commitNew = (a: Annotation, tool: string) => {
     store.add([a])
     effort.commit([a], tool)
+    if (alikeReady && imageIdRef.current != null && similar?.stage !== 'running') offerSimilar(imageIdRef.current, a)
     const box = boundingBox(a)
     for (const p of useAnnotate.getState().proposals) {
       if (boxIou(p.box, box) >= 0.5) store.removeProposal(p.id)
@@ -351,10 +360,81 @@ export function AnnotatePage() {
   }, [samReady])
 
   const aiActivity = mode !== 'ai' ? null
+    : similar?.stage === 'running' ? `AI is looking for “${similar.name}”…`
     : detecting ? 'AI is finding objects…'
     : smartBusy ? 'AI is tracing the outline…'
     : embedState === 'running' ? 'AI is reading the image…'
     : null
+
+  // ---- find alike objects -------------------------------------------------
+  const labelName = (id: number) => labelsRef.current.find((l) => l.id === id)?.name ?? 'this'
+
+  const offerSimilar = (imageId: number, a: Annotation) => {
+    exampleRef.current = { imageId, annotation: a }
+    setSimilar({ stage: 'offer', name: labelName(a.label_id) })
+  }
+
+  /**
+   * Search every image of the project for objects of the same kind as the example (mark one cricket
+   * ball, get all balls, also other colours and sizes; OWLv2). Results have the example's kind. The open image gets them in the
+   * editor (undoable, autosaved); other images are saved by the server.
+   */
+  const runSimilar = async () => {
+    const example = exampleRef.current
+    if (!example) return
+    const { imageId: sourceId, annotation: a } = example
+    const name = labelName(a.label_id)
+    const order = [sourceId, ...images.map((i) => i.id).filter((id) => id !== sourceId)]
+    const region = a.kind === 'box' ? { box: a.geometry } : { polygon: a.geometry.points }
+    similarStop.current = false
+    similarIds.current = []
+    let found = 0
+    let touched = 0
+    setSimilar({ stage: 'running', name, done: 0, total: order.length, found })
+    for (let i = 0; i < order.length && !similarStop.current; i++) {
+      const target = order[i]
+      try {
+        const local = target === imageIdRef.current
+        const res = await api.findSimilar(target, { source_image_id: sourceId, label_id: a.label_id, save: !local, ...region })
+        let regions = res.regions
+        if (local && imageIdRef.current !== target) {
+          // The user moved on while this image was searched: let the server save the result.
+          regions = (await api.findSimilar(target, { source_image_id: sourceId, label_id: a.label_id, save: true, ...region })).regions
+        } else if (local && regions.length) {
+          const created: Annotation[] = regions.map((r) => a.kind === 'box'
+            ? { id: uid(), kind: 'box', geometry: r.box, label_id: a.label_id, source: 'ai', score: r.score }
+            : { id: uid(), kind: 'polygon', geometry: { points: r.polygon }, label_id: a.label_id, source: 'ai', score: r.score })
+          store.add(created)
+          effort.commit(created, 'similar')
+          regions = created.map((c, k) => ({ ...regions[k], id: c.id }))
+        }
+        similarIds.current.push(...regions.map((r) => r.id!).filter(Boolean))
+        found += regions.length
+        if (regions.length) touched++
+      } catch (e) {
+        setError(`Find similar: ${(e as Error).message}`)
+        break
+      }
+      setSimilar({ stage: 'running', name, done: i + 1, total: order.length, found })
+    }
+    setSimilar({ stage: 'result', name, found, images: touched, stopped: similarStop.current })
+    if (touched) api.listImages(projectId).then(setImages).catch(() => {})
+  }
+
+  const undoSimilar = async () => {
+    const ids = similarIds.current
+    similarIds.current = []
+    const open = new Set(useAnnotate.getState().annotations.map((x) => x.id))
+    for (const id of ids) if (open.has(id)) store.remove(id)
+    try {
+      await save()
+      await api.undoSimilar(ids)
+      api.listImages(projectId).then(setImages).catch(() => {})
+    } catch (e) {
+      setError(`Undo: ${(e as Error).message}`)
+    }
+    setSimilar(null)
+  }
 
   // ---- navigation ---------------------------------------------------------
   const index = images.findIndex((i) => i.id === imageId)
@@ -514,6 +594,11 @@ export function AnnotatePage() {
           )}
           <AiWorking label={aiActivity} />
           <AiSuggestionsToast added={suggested.added} review={suggested.review} nonce={suggested.nonce} />
+          {similar && mode === 'ai' && (
+            <SimilarSearch state={similar} onFind={() => void runSimilar()}
+                           onStop={() => { similarStop.current = true }}
+                           onUndo={() => void undoSimilar()} onClose={() => setSimilar(null)} />
+          )}
           {pending && (
             <NamePicker labels={labels} lastId={activeLabelId}
                         onPick={(c) => void pickName(c)} onCancel={() => setPending(null)} />
@@ -565,7 +650,8 @@ export function AnnotatePage() {
           )}
 
           <div data-tour="annotations">
-            <AnnotationList labels={labels} samEnabled={samReady} simple={!expert} />
+            <AnnotationList labels={labels} samEnabled={samReady} simple={!expert} alikeEnabled={alikeReady}
+                            onFindSimilar={(a) => imageIdRef.current != null && offerSimilar(imageIdRef.current, a)} />
           </div>
 
           {expert && <details className="text-xs text-neutral-400">
@@ -621,7 +707,7 @@ const ANNOTATE_TOUR: TourStep[] = [
   { target: 'zoom', title: 'Zoom', body: 'Zoom in and out, or press Fit (F) to see the whole image again.' },
   { target: 'labels', title: 'Labels', body: 'Pick the label for new shapes. Keys 1-9 choose a label and relabel the selected shape.' },
   { target: 'autolabel', title: 'Your AI assistant', body: 'The AI checks every image you open. Objects it is sure about are marked for you. When it is unsure it asks: answer Yes or No. A glowing border means it is working.' },
-  { target: 'annotations', title: 'Objects on this image', body: 'Everything marked so far. Fix a name with the menu, or remove a mark with ✕.' },
+  { target: 'annotations', title: 'Objects on this image', body: 'Everything marked so far. Fix a name with the menu, remove a mark with ✕, or tap ⧉ so the AI marks every alike object in all images (mark one ball, it finds the others).' },
   { target: 'expert', title: 'Expert tools', body: 'Need more control? Turn this on for extra drawing tools, label setup, the confidence slider and keyboard shortcuts.' },
   { target: 'mode', title: 'AI-assisted vs manual', body: 'Manual turns the AI tools off. Time and clicks are logged per mode to measure the effort AI saves.' },
   { target: 'save', title: 'Autosave', body: 'Every change saves by itself. There is no save button to forget.' },

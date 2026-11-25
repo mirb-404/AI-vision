@@ -78,7 +78,7 @@ export function ProposalPanel({ available, detail, detecting, simple, autoSugges
           )}
           <ul className="max-h-48 space-y-1 overflow-y-auto">
             {visible.map((p, i) => (
-              <li key={p.id} style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}
+              <li key={p.id} style={{ animationDelay: `${Math.min(i, 12) * 80}ms` }}
                   onClick={() => selectProposal(p.id)}
                   className={`flex animate-fade-up cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs ${
                     p.id === selectedProposalId ? 'bg-yellow-400/15' : 'hover:bg-neutral-800'}`}>

@@ -1,4 +1,4 @@
-import type { Label, Source } from '../api/types'
+import type { Annotation, Label, Source } from '../api/types'
 import { useAnnotate } from '../store/annotate'
 
 const SOURCE_BADGE: Record<Source, { text: string; cls: string }> = {
@@ -7,7 +7,13 @@ const SOURCE_BADGE: Record<Source, { text: string; cls: string }> = {
   ai_edited: { text: '✦ AI · fixed', cls: 'bg-amber-500/20 text-amber-300' },
 }
 
-export function AnnotationList({ labels, samEnabled, simple }: { labels: Label[]; samEnabled: boolean; simple: boolean }) {
+export function AnnotationList({ labels, samEnabled, alikeEnabled, simple, onFindSimilar }: {
+  labels: Label[]
+  samEnabled: boolean
+  alikeEnabled: boolean
+  simple: boolean
+  onFindSimilar: (a: Annotation) => void
+}) {
   const { annotations, selectedId, select, update, remove, startRefine } = useAnnotate()
   const colorOf = (id: number) => labels.find((l) => l.id === id)?.color ?? '#94a3b8'
 
@@ -39,6 +45,11 @@ export function AnnotationList({ labels, samEnabled, simple }: { labels: Label[]
               {a.kind === 'box' && samEnabled && (
                 <button title="Outline this object exactly with AI" className="text-cyan-300 hover:text-cyan-200"
                         onClick={(e) => { e.stopPropagation(); startRefine(a.id, a.geometry) }}>✦</button>
+              )}
+              {alikeEnabled && (
+                <button title="Find every object of this kind in all images" aria-label="Find alike objects"
+                        className="text-cyan-300 hover:text-cyan-200"
+                        onClick={(e) => { e.stopPropagation(); onFindSimilar(a) }}>⧉</button>
               )}
               <button title="Delete" className="text-neutral-500 hover:text-red-400"
                       onClick={(e) => { e.stopPropagation(); remove(a.id) }}>✕</button>

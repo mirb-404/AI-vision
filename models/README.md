@@ -11,6 +11,7 @@ The inference code itself lives in `backend/app/inference/`. This folder only ho
 | `sam_encoder.onnx` | SAM image encoder (once per image) | `SAM_ENCODER` |
 | `sam_decoder.onnx` | SAM prompt decoder (per click/box) | `SAM_DECODER` |
 | `yolo.onnx` | YOLO detector (box pre-labels) | `YOLO_MODEL` |
+| `owlv2.onnx` | OWLv2: find every object of the same kind as a marked example | `OWL_MODEL` |
 
 `SAM_VARIANT=sam2` (default) for SAM 2.x exports; `SAM_VARIANT=sam1` for SAM v1 / MobileSAM exports.
 The app runs without any of these: AI buttons show "unavailable" and manual labeling still works.
@@ -26,6 +27,10 @@ python models/export_yolo.py --weights yolo26n.pt      # or yolo11n.pt / yolov8n
 
 # SAM 2.1 tiny: downloads the Meta checkpoint, writes sam_encoder.onnx + sam_decoder.onnx
 bash models/export_sam.sh sam2.1_hiera_tiny
+
+# OWLv2 base (find alike objects): downloads ~600 MB from Hugging Face, writes owlv2.onnx,
+# then checks the ONNX outputs against PyTorch
+python models/export_owlv2.py
 
 # Check the I/O of the files, then test them with the backend code
 python models/inspect_onnx.py models/weights/*.onnx
@@ -58,11 +63,17 @@ Data types are cast to whatever the graph declares. Outputs are `masks` (logits;
 
 Class names come from the ONNX metadata (`names`).
 
+**OWLv2:** input `pixel_values [1, 3, 960, 960]` (padded to a square with grey, CLIP-normalised; see
+`backend/app/inference/owl.py`). Per-patch outputs: `class_embeds [1, N, D]` (unit), `logit_shift`
+and `logit_scale [1, N, 1]`, `pred_boxes [1, N, 4]` (cx, cy, w, h normalised to the square), and
+`objectness [1, N]`. Picking the query from the example box and scoring the patches happen in numpy.
+
 ## Licenses / citations (for the report)
 
 - SAM 2 / 2.1: Ravi et al., *SAM 2: Segment Anything in Images and Videos*, arXiv:2408.00714. Apache-2.0 (github.com/facebookresearch/sam2).
 - MobileSAM (optional): Zhang et al., arXiv:2306.14289. Apache-2.0.
 - YOLO26 / YOLO11 / YOLOv8: Ultralytics, AGPL-3.0 (github.com/ultralytics/ultralytics).
+- OWLv2: Minderer, Gritsenko, Houlsby, *Scaling Open-Vocabulary Object Detection*, NeurIPS 2023. Checkpoint `google/owlv2-base-patch16-ensemble`, Apache-2.0. The image-guided (one-shot) query follows OWL-ViT (Minderer et al., ECCV 2022) and Hugging Face `transformers` (Apache-2.0).
 - samexporter (ONNX export tool only): github.com/vietanhdev/samexporter. Check its license.
 
 Verify each license against the repository's LICENSE file before submission.

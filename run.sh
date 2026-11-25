@@ -48,7 +48,7 @@ check_python() {
 # ---------------------------------------------------------------- models
 export_models() {
   if [ -n "${SKIP_MODELS:-}" ]; then log "Skipping model export (SKIP_MODELS set)"; return; fi
-  if [ -f "$WEIGHTS/yolo.onnx" ] && [ -f "$WEIGHTS/sam_encoder.onnx" ] && [ -f "$WEIGHTS/sam_decoder.onnx" ]; then
+  if [ -f "$WEIGHTS/yolo.onnx" ] && [ -f "$WEIGHTS/sam_encoder.onnx" ] && [ -f "$WEIGHTS/sam_decoder.onnx" ]      && [ -f "$WEIGHTS/owlv2.onnx" ]; then
     log "Model weights present in models/weights"
     return
   fi
@@ -66,6 +66,9 @@ export_models() {
     fi
     if [ ! -f "$WEIGHTS/sam_encoder.onnx" ] || [ ! -f "$WEIGHTS/sam_decoder.onnx" ]; then
       bash models/export_sam.sh "${SAM_MODEL:-sam2.1_hiera_tiny}"
+    fi
+    if [ ! -f "$WEIGHTS/owlv2.onnx" ]; then
+      python models/export_owlv2.py
     fi
   )
 }

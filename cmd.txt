@@ -1,0 +1,3 @@
+# command to pull and run unified shell command
+
+git pull && ./run.sh datalab
