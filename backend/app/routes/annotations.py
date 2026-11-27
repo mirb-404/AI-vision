@@ -18,7 +18,6 @@ def _out(a: Annotation) -> AnnotationOut:
         geometry=a.geometry,
         source=a.source,  # type: ignore[arg-type]
         score=a.score,
-        attributes=a.attributes or {},
     )
 
 
@@ -55,14 +54,13 @@ def put_annotations(image_id: int, body: AnnotationsPut, db: Session = Depends(g
         row = existing.get(a.id)
         if row is None:
             db.add(Annotation(id=a.id, image_id=image_id, label_id=a.label_id, kind=a.kind,
-                              geometry=a.geometry, source=a.source, score=a.score, attributes=a.attributes,
-                              created_at=now, updated_at=now))
+                              geometry=a.geometry, source=a.source, score=a.score, created_at=now, updated_at=now))
         else:
-            changed = (row.label_id, row.kind, row.geometry, row.source, row.score, row.attributes or {}) != (
-                a.label_id, a.kind, a.geometry, a.source, a.score, a.attributes)
+            changed = (row.label_id, row.kind, row.geometry, row.source, row.score) != (
+                a.label_id, a.kind, a.geometry, a.source, a.score)
             if changed:
                 row.label_id, row.kind, row.geometry = a.label_id, a.kind, a.geometry
-                row.source, row.score, row.attributes, row.updated_at = a.source, a.score, a.attributes, now
+                row.source, row.score, row.updated_at = a.source, a.score, now
                 db.add(row)
 
     if body.annotations and image.status == "new":

@@ -123,39 +123,6 @@ def text_threshold(strictness: float) -> float:
     return 0.10 + 0.20 * float(np.clip(strictness, 0.0, 1.0))
 
 
-VOCAB_THRESHOLD = 0.3  # stricter than one text query: 1203 classes compete for every patch (untuned)
-
-
-def detect_vocab(patches: dict[str, np.ndarray], embeds: np.ndarray, names: list[str],
-                 threshold: float = VOCAB_THRESHOLD, nms_iou: float = 0.5,
-                 max_dets: int = 100) -> list[tuple[str, np.ndarray, float]]:
-    """OWLv2 detection over a whole vocabulary at once (standard OWL inference with many queries).
-
-    Each patch gets the class with the highest score sigmoid((cos + shift) * scale); patches below
-    the threshold are dropped, then class-agnostic NMS. Returns (name, xyxy pixels, score), best first.
-    """
-    logits = (patches["class_embeds"] @ embeds.T + patches["logit_shift"][:, None]) * patches["logit_scale"][:, None]
-    best = logits.argmax(axis=1)
-    scores = 1.0 / (1.0 + np.exp(-logits[np.arange(len(best)), best]))
-    keep = np.nonzero(scores >= threshold)[0]
-    if keep.size == 0:
-        return []
-    boxes = patches["boxes"][keep]
-    xywh = [[float(b[0]), float(b[1]), float(b[2] - b[0]), float(b[3] - b[1])] for b in boxes]
-    picked = np.asarray(cv2.dnn.NMSBoxes(xywh, scores[keep].astype(float).tolist(), threshold, nms_iou)).reshape(-1)
-    out = [(names[int(best[keep][i])], boxes[i], float(scores[keep][i])) for i in picked]
-    out.sort(key=lambda r: -r[2])
-    return out[:max_dets]
-
-
-def load_vocab(path: Path) -> tuple[list[str], np.ndarray]:
-    """(names, unit embeddings (V, D) float32) from models/export_owlv2.py's owlv2_lvis.npz."""
-    data = np.load(path, allow_pickle=False)
-    embeds = data["embeds"].astype(np.float32)
-    embeds /= np.linalg.norm(embeds, axis=1, keepdims=True) + 1e-6
-    return [str(n) for n in data["names"]], embeds
-
-
 class OwlTextEncoder:
     """OWLv2 text tower via ONNX Runtime: "car" -> unit query embedding (same space as class_embeds).
 

@@ -59,26 +59,3 @@ def test_next_images_ranks_unsure_first(client, monkeypatch):
     res = client.post(f"/api/projects/{pid}/next-images?limit=3").json()
     assert res["ranked"] == 1 and res["images"][0]["image_id"] == image["id"]
     assert res["images"][0]["unsure"] == 1 and res["images"][0]["uncertainty"] == 1.0
-
-
-def test_reset_project_keeps_images(client):
-    pid, label_id, image = _setup(client)
-    iid = image["id"]
-    client.put(f"/api/images/{iid}/annotations", json={"annotations": [
-        {"id": "reset1", "label_id": label_id, "kind": "box", "geometry": {"x": 1, "y": 1, "w": 5, "h": 5}}]})
-    client.patch(f"/api/images/{iid}", json={"status": "done"})
-    sess = client.post(f"/api/projects/{pid}/sessions", json={"mode": "ai"}).json()
-    client.post(f"/api/projects/{pid}/events", json={"events": [
-        {"session_id": sess["id"], "kind": "annotation_committed", "image_id": iid, "annotation_id": "reset1"}]})
-
-    r = client.post(f"/api/projects/{pid}/reset", json={}).json()
-    assert r == {"annotations_deleted": 1, "images_reset": 1, "events_deleted": 0, "labels_deleted": 0}
-    assert client.get(f"/api/images/{iid}/annotations").json() == []
-    assert client.get(f"/api/images/{iid}").json()["status"] == "new"
-    assert client.get(f"/api/projects/{pid}/stats").json()["per_mode"]["ai"]["objects"] == 1  # stats kept
-
-    r = client.post(f"/api/projects/{pid}/reset", json={"clear_stats": True, "remove_labels": True}).json()
-    assert r["events_deleted"] == 1 and r["labels_deleted"] == 1
-    assert client.get(f"/api/projects/{pid}/stats").json()["per_mode"]["ai"]["objects"] == 0
-    assert client.get(f"/api/projects/{pid}/labels").json() == []
-    assert client.get(f"/api/projects/{pid}/images").json()[0]["id"] == iid  # image still there

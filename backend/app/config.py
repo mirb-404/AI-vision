@@ -30,8 +30,6 @@ OWL_MODEL = MODELS_DIR / os.getenv("OWL_MODEL", "owlv2.onnx")
 # OWLv2 text tower + CLIP tokenizer for "find by name" (type "car", the AI marks every car).
 OWL_TEXT_MODEL = MODELS_DIR / os.getenv("OWL_TEXT_MODEL", "owlv2_text.onnx")
 OWL_TOKENIZER = MODELS_DIR / os.getenv("OWL_TOKENIZER", "owlv2_tokenizer.json")
-# 1203 LVIS class names + OWLv2 text embeddings for "More kinds of things" (models/export_owlv2.py).
-OWL_VOCAB = MODELS_DIR / os.getenv("OWL_VOCAB", "owlv2_lvis.npz")
 
 # Comma-separated ONNX Runtime providers, tried in order.
 ORT_PROVIDERS = [p.strip() for p in os.getenv("ORT_PROVIDERS", "CPUExecutionProvider").split(",") if p.strip()]

@@ -21,7 +21,6 @@ _sam: SamModel | None = None
 _yolo: YoloModel | MergedDetector | None = None
 _owl: OwlModel | None = None
 _owl_text: OwlTextEncoder | None = None
-_vocab: tuple[list[str], object] | None = None
 _errors: dict[str, str] = {}
 
 
@@ -112,23 +111,6 @@ def get_owl_text() -> OwlTextEncoder:
         return _owl_text
 
 
-def get_owl_vocab():
-    """(names, embeddings) of the LVIS vocabulary, or ModelUnavailable."""
-    global _vocab
-    with _lock:
-        if _vocab is None:
-            if not config.OWL_VOCAB.is_file():
-                raise ModelUnavailable(f"{config.OWL_VOCAB.name} not found in {config.MODELS_DIR}; see models/README.md")
-            from .owl import load_vocab
-            try:
-                _vocab = load_vocab(config.OWL_VOCAB)
-                _errors.pop("owl_vocab", None)
-            except Exception as exc:
-                _errors["owl_vocab"] = str(exc)
-                raise ModelUnavailable(f"vocabulary failed to load: {exc}") from exc
-        return _vocab
-
-
 def status() -> dict[str, dict]:
     sam_present = _sam_files_present()
     yolo_present = config.YOLO_MODEL.is_file()
@@ -160,12 +142,6 @@ def status() -> dict[str, dict]:
             "available": owl_present,
             "loaded": _owl is not None,
             "detail": detail("owl", owl_present, _owl is not None, config.OWL_MODEL.name),
-        },
-        "owl_vocab": {
-            "available": owl_present and config.OWL_VOCAB.is_file(),
-            "loaded": _vocab is not None,
-            "detail": detail("owl_vocab", owl_present and config.OWL_VOCAB.is_file(), _vocab is not None,
-                             f"{config.OWL_MODEL.name} + {config.OWL_VOCAB.name}"),
         },
         "owl_text": {
             "available": text_present,

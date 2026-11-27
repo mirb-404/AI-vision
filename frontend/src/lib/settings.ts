@@ -12,11 +12,9 @@ export interface SessionSettings {
   expert: boolean
   /** AI labels are traced by SAM along the object's edge (true) or kept as boxes (false). */
   outlines: boolean
-  /** Also look for the 1203 LVIS kinds of things (OWLv2): more labels, slower, less sure. */
-  moreKinds: boolean
 }
 
-const DEFAULTS: SessionSettings = { mode: 'ai', participant: '', autoSuggest: true, autoAccept: true, expert: false, outlines: true, moreKinds: false }
+const DEFAULTS: SessionSettings = { mode: 'ai', participant: '', autoSuggest: true, autoAccept: true, expert: false, outlines: true }
 
 const key = (projectId: number) => `annotator.settings.${projectId}`
 
@@ -32,7 +30,6 @@ export function loadSettings(projectId: number): SessionSettings {
         autoAccept: parsed.autoAccept !== false,
         expert: parsed.expert === true,
         outlines: parsed.outlines !== false,
-        moreKinds: parsed.moreKinds === true,
       }
     }
   } catch {

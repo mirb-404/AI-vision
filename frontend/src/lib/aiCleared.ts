@@ -12,15 +12,6 @@ function load(projectId: number): Set<number> {
   }
 }
 
-/** Forget every "AI labels removed" mark of a project (after a reset the assistant labels again). */
-export function clearAiCleared(projectId: number) {
-  try {
-    localStorage.removeItem(key(projectId))
-  } catch {
-    /* storage unavailable */
-  }
-}
-
 export function isAiCleared(projectId: number, imageId: number): boolean {
   return load(projectId).has(imageId)
 }

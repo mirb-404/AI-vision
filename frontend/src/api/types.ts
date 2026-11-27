@@ -46,23 +46,11 @@ export interface PolygonGeom {
   points: number[] // [x0, y0, x1, y1, ...] in image pixels
 }
 
-/** Per-object attributes (as in Scale / V7 / Labelbox ontologies). */
-export interface Attributes {
-  /** Another object hides part of it. */
-  occluded?: boolean
-  /** Part of it is outside the photo. */
-  truncated?: boolean
-  note?: string
-  /** Attributes the AI pre-filled (the user has not changed them). */
-  ai_suggested?: ('occluded' | 'truncated')[]
-}
-
 interface AnnotationBase {
   id: string
   label_id: number
   source: Source
   score: number | null
-  attributes?: Attributes
 }
 
 export type BoxAnnotation = AnnotationBase & { kind: 'box'; geometry: BoxGeom }
@@ -117,8 +105,6 @@ export interface AiStatus {
   owl?: ModelStatus
   /** OWLv2 text tower: find every object matching a typed name. */
   owl_text?: ModelStatus
-  /** OWLv2 + LVIS vocabulary (1203 classes): more kinds of things. */
-  owl_vocab?: ModelStatus
 }
 
 export interface LabelingSession {
@@ -221,8 +207,6 @@ export interface Scorecard {
   images_scope: string
   total: ScoreCounts
   per_label: Record<string, ScoreCounts>
-  /** Which detector's labels survived review. */
-  per_model: Record<string, { ai_kept: number; ai_fixed: number; ai_removed: number; precision: number | null }>
   effort: {
     seconds_per_object: { manual: number | null; ai: number | null }
     speed_up_median: number | null

@@ -15,8 +15,6 @@ The inference code itself lives in `backend/app/inference/`. This folder only ho
 | `owlv2.onnx` | OWLv2: find every object of the same kind as a marked example | `OWL_MODEL` |
 | `owlv2_text.onnx` | OWLv2 text tower: find every object matching a typed name | `OWL_TEXT_MODEL` |
 | `owlv2_tokenizer.json` | CLIP tokenizer for the text tower | `OWL_TOKENIZER` |
-| `owlv2_lvis.npz` | 1,203 LVIS class names + OWLv2 text embeddings ("More kinds of things") | `OWL_VOCAB` |
-| `class_tree.json` | Parent of each Open Images class (Man -> Person), for export supercategories (`export_class_tree.py`) | - |
 
 `SAM_VARIANT=sam2` (default) for SAM 2.x exports; `SAM_VARIANT=sam1` for SAM v1 / MobileSAM exports.
 The app runs without any of these: AI buttons show "unavailable" and manual labeling still works.
@@ -85,8 +83,7 @@ padded with id 0), output `text_embeds [1, D]` (normalised in numpy). The backen
 - SAM 2 / 2.1: Ravi et al., *SAM 2: Segment Anything in Images and Videos*, arXiv:2408.00714. Apache-2.0 (github.com/facebookresearch/sam2).
 - MobileSAM (optional): Zhang et al., arXiv:2306.14289. Apache-2.0.
 - YOLO26 / YOLO11 / YOLOv8: Ultralytics, AGPL-3.0 (github.com/ultralytics/ultralytics).
-- LVIS (class names for `owlv2_lvis.npz`): Gupta, Dollár, Girshick, *LVIS*, CVPR 2019 (names taken from the Ultralytics `lvis.yaml`).
-- Open Images class hierarchy (`class_tree.json`) and V7 (training data of the main `yolov8s-oiv7` detector): Kuznetsova et al., *The Open Images Dataset V4*, IJCV 2020; annotations CC BY 4.0 (storage.googleapis.com/openimages/web/index.html).
+- Open Images V7 (training data of the main `yolov8s-oiv7` detector): Kuznetsova et al., *The Open Images Dataset V4*, IJCV 2020; annotations CC BY 4.0 (storage.googleapis.com/openimages/web/index.html).
 - OWLv2: Minderer, Gritsenko, Houlsby, *Scaling Open-Vocabulary Object Detection*, NeurIPS 2023. Checkpoint `google/owlv2-base-patch16-ensemble`, Apache-2.0. The image-guided (one-shot) query follows OWL-ViT (Minderer et al., ECCV 2022) and Hugging Face `transformers` (Apache-2.0). Text queries use the CLIP tokenizer via Hugging Face `tokenizers` (Apache-2.0).
 - samexporter (ONNX export tool only): github.com/vietanhdev/samexporter. Check its license.
 

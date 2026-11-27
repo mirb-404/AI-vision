@@ -6,8 +6,7 @@ import { useAnnotate, type Proposal } from '../store/annotate'
  * questions. Expert view adds the confidence slider and score percentages.
  */
 export function ProposalPanel({ available, detail, detecting, simple, autoSuggest, onAutoSuggest, autoAccept,
-                                onAutoAccept, outlines, outlinesAvailable, onOutlines, moreKinds, moreKindsAvailable,
-                                onMoreKinds, onDetect, onAccept, onReject }: {
+                                onAutoAccept, outlines, outlinesAvailable, onOutlines, onDetect, onAccept, onReject }: {
   available: boolean
   detail?: string
   detecting: boolean
@@ -20,10 +19,6 @@ export function ProposalPanel({ available, detail, detecting, simple, autoSugges
   outlines: boolean
   outlinesAvailable: boolean
   onOutlines: (on: boolean) => void
-  /** Also look for the 1203 LVIS kinds of things (OWLv2). */
-  moreKinds: boolean
-  moreKindsAvailable: boolean
-  onMoreKinds: (on: boolean) => void
   onDetect: () => void
   onAccept: (items: Proposal[]) => void
   onReject: (items: Proposal[]) => void
@@ -44,10 +39,6 @@ export function ProposalPanel({ available, detail, detecting, simple, autoSugges
               title="Mark sure objects for me" hint="Only unsure ones are asked about" />
       <Switch on={outlines && outlinesAvailable} disabled={!available || !outlinesAvailable} onChange={onOutlines}
               title="Exact outlines" hint="AI traces each object's edge, not just a box" />
-      {moreKindsAvailable && (
-        <Switch on={moreKinds} disabled={!available} onChange={onMoreKinds}
-                title="More kinds of things" hint="1,203 kinds; slower and less sure" />
-      )}
 
       <button className={`relative w-full overflow-hidden rounded-md p-px text-sm disabled:opacity-50 ${detecting ? '' : 'bg-neutral-700'}`}
               onClick={onDetect} disabled={!available || detecting}

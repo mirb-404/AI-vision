@@ -7,7 +7,6 @@ from xml.sax.saxutils import escape
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..class_tree import parent_of
 from ..tables import Annotation, Image, Label
 from .render import render_annotated
 
@@ -72,10 +71,8 @@ def coco_dict(project_name: str, images: list[Image], labels: list[Label],
                 "segmentation": [poly],
                 "area": round(polygon_area(poly) if a.kind == "polygon" else box[2] * box[3], 2),
                 "iscrowd": 0,
-                # Non-standard but common extras (CVAT does the same): provenance for quality
-                # analysis plus the object's attributes (occluded, truncated, note).
-                "attributes": {"type": a.kind, "source": a.source, "score": a.score, "uid": a.id,
-                               **(a.attributes or {})},
+                # Non-standard but harmless extras: provenance for quality analysis.
+                "attributes": {"type": a.kind, "source": a.source, "score": a.score, "uid": a.id},
             })
             ann_id += 1
     return {
@@ -84,8 +81,7 @@ def coco_dict(project_name: str, images: list[Image], labels: list[Label],
         "licenses": [],
         "images": coco_images,
         "annotations": coco_anns,
-        "categories": [{"id": l.id, "name": l.name, "supercategory": parent_of(l.name) or "none"}
-                       for l in labels],
+        "categories": [{"id": l.id, "name": l.name, "supercategory": "none"} for l in labels],
     }
 
 
@@ -128,12 +124,10 @@ def voc_xml(image: Image, name: str, labels_by_id: dict[int, Label], annotations
         # VOC pixel coordinates are 1-based and inclusive.
         x1, y1 = int(round(x)) + 1, int(round(y)) + 1
         x2, y2 = max(int(round(x + w)), x1), max(int(round(y + h)), y1)
-        attrs = a.attributes or {}
         objects.append(
             "  <object>\n"
             f"    <name>{escape(labels_by_id[a.label_id].name)}</name>\n"
-            f"    <pose>Unspecified</pose>\n    <truncated>{int(bool(attrs.get('truncated')))}</truncated>\n"
-            f"    <occluded>{int(bool(attrs.get('occluded')))}</occluded>\n    <difficult>0</difficult>\n"
+            "    <pose>Unspecified</pose>\n    <truncated>0</truncated>\n    <difficult>0</difficult>\n"
             f"    <bndbox><xmin>{x1}</xmin><ymin>{y1}</ymin><xmax>{x2}</xmax><ymax>{y2}</ymax></bndbox>\n"
             "  </object>\n")
     return ("<annotation>\n  <folder>JPEGImages</folder>\n"
