@@ -1,4 +1,4 @@
-"""YOLO object detector (Ultralytics ONNX export) for box pre-labels."""
+"""YOLO object detectors (Ultralytics ONNX exports) for box pre-labels, alone or merged."""
 
 import ast
 import time
@@ -12,7 +12,8 @@ from .postprocess import decode_yolo
 
 
 class YoloModel:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, tag: str = "yolo"):
+        self.tag = tag  # which detector a box came from (shown in the report / stats)
         self.session = make_session(path)
         inp = self.session.get_inputs()[0]
         self.input_name = inp.name
@@ -61,7 +62,74 @@ class YoloModel:
             detections.append({
                 "label": self.names.get(class_id, f"class_{class_id}"),
                 "class_id": class_id,
+                "model": self.tag,
                 "score": float(score),
                 "box": {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1},
             })
         return detections, latency
+
+
+GIANT_BOX = 0.8  # a box from the broad model covering more of the image than this is scenery ("Tree")
+SAME_OBJECT_IOU = 0.7  # boxes from different models overlapping this much describe the same object
+
+
+def _iou(a: dict, b: dict) -> float:
+    ix = max(0.0, min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"]))
+    iy = max(0.0, min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"]))
+    inter = ix * iy
+    union = a["w"] * a["h"] + b["w"] * b["h"] - inter
+    return inter / union if union > 0 else 0.0
+
+
+def merge_detections(per_model: list[list[dict]], image_area: float) -> list[dict]:
+    """Merge the boxes of several detectors into one list, most confident first.
+
+    per_model[0] is the broad model (Open Images, 601 classes): it names many more things but also
+    draws scenery boxes over the whole image, so its boxes covering > GIANT_BOX of the image are
+    dropped. The other models (COCO, 80 classes) fill in objects the broad model misses.
+    Boxes from different models that overlap by IoU >= SAME_OBJECT_IOU are the same object under two
+    names ("person" / "Man"): the more confident one is kept. Boxes of the same model are already
+    de-duplicated by that model's NMS, so they never suppress each other here (a face inside a
+    person stays).
+    """
+    pool = []
+    for m, dets in enumerate(per_model):
+        for d in dets:
+            b = d["box"]
+            if m == 0 and len(per_model) > 1 and b["w"] * b["h"] > GIANT_BOX * image_area:
+                continue
+            pool.append((m, d))
+    pool.sort(key=lambda md: -md[1]["score"])
+    kept: list[tuple[int, dict]] = []
+    for m, d in pool:
+        if any(km != m and _iou(d["box"], kd["box"]) >= SAME_OBJECT_IOU for km, kd in kept):
+            continue
+        kept.append((m, d))
+    return [d for _, d in kept]
+
+
+class MergedDetector:
+    """Several YOLO models behind the YoloModel interface (names, detect)."""
+
+    def __init__(self, models: list[YoloModel], tags: list[str]):
+        self.models = models
+        self.tags = tags
+        self.names = {}
+        offset = 0
+        for model in models:  # class ids made unique across models
+            for k, v in model.names.items():
+                self.names[offset + k] = v
+            offset += max(model.names, default=-1) + 1
+
+    def detect(self, rgb: np.ndarray, conf: float, iou: float) -> tuple[list[dict], float]:
+        per_model, total, offset = [], 0.0, 0
+        for model, tag in zip(self.models, self.tags):
+            dets, ms = model.detect(rgb, conf, iou)
+            total += ms
+            for d in dets:
+                d["class_id"] += offset
+                d["model"] = tag
+            per_model.append(dets)
+            offset += max(model.names, default=-1) + 1
+        h, w = rgb.shape[:2]
+        return merge_detections(per_model, float(w * h)), total

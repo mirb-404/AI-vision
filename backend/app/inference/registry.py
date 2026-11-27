@@ -9,7 +9,7 @@ import threading
 from .. import config
 from .owl import OwlModel, OwlTextEncoder
 from .sam import SamModel
-from .yolo import YoloModel
+from .yolo import MergedDetector, YoloModel
 
 
 class ModelUnavailable(RuntimeError):
@@ -18,7 +18,7 @@ class ModelUnavailable(RuntimeError):
 
 _lock = threading.Lock()
 _sam: SamModel | None = None
-_yolo: YoloModel | None = None
+_yolo: YoloModel | MergedDetector | None = None
 _owl: OwlModel | None = None
 _owl_text: OwlTextEncoder | None = None
 _errors: dict[str, str] = {}
@@ -46,7 +46,11 @@ def get_sam() -> SamModel:
         return _sam
 
 
-def get_yolo() -> YoloModel:
+def _extra_present() -> bool:
+    return config.YOLO_EXTRA_MODEL is not None and config.YOLO_EXTRA_MODEL.is_file()
+
+
+def get_yolo() -> YoloModel | MergedDetector:
     global _yolo
     with _lock:
         if _yolo is None:
@@ -55,7 +59,12 @@ def get_yolo() -> YoloModel:
                     f"YOLO weights not found ({config.YOLO_MODEL.name} in {config.MODELS_DIR}); see models/README.md"
                 )
             try:
-                _yolo = YoloModel(config.YOLO_MODEL)
+                main = YoloModel(config.YOLO_MODEL, tag=config.YOLO_MODEL.stem)
+                if _extra_present():  # merged: the extra model fills in what the main one misses
+                    extra = YoloModel(config.YOLO_EXTRA_MODEL, tag=config.YOLO_EXTRA_MODEL.stem)  # type: ignore[arg-type]
+                    _yolo = MergedDetector([main, extra], [main.tag, extra.tag])
+                else:
+                    _yolo = main
                 _errors.pop("yolo", None)
             except Exception as exc:
                 _errors["yolo"] = str(exc)
@@ -126,7 +135,8 @@ def status() -> dict[str, dict]:
         "yolo": {
             "available": yolo_present,
             "loaded": _yolo is not None,
-            "detail": detail("yolo", yolo_present, _yolo is not None, config.YOLO_MODEL.name),
+            "detail": detail("yolo", yolo_present, _yolo is not None, config.YOLO_MODEL.name)
+            + (f" + {config.YOLO_EXTRA_MODEL.name} (merged)" if yolo_present and _extra_present() else ""),  # type: ignore[union-attr]
         },
         "owl": {
             "available": owl_present,

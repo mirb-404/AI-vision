@@ -10,9 +10,11 @@ export interface SessionSettings {
   autoAccept: boolean
   /** Show the full tool set (polygon, confidence slider, label setup, shortcuts). */
   expert: boolean
+  /** AI labels are traced by SAM along the object's edge (true) or kept as boxes (false). */
+  outlines: boolean
 }
 
-const DEFAULTS: SessionSettings = { mode: 'ai', participant: '', autoSuggest: true, autoAccept: true, expert: false }
+const DEFAULTS: SessionSettings = { mode: 'ai', participant: '', autoSuggest: true, autoAccept: true, expert: false, outlines: true }
 
 const key = (projectId: number) => `annotator.settings.${projectId}`
 
@@ -27,6 +29,7 @@ export function loadSettings(projectId: number): SessionSettings {
         autoSuggest: parsed.autoSuggest !== false,
         autoAccept: parsed.autoAccept !== false,
         expert: parsed.expert === true,
+        outlines: parsed.outlines !== false,
       }
     }
   } catch {

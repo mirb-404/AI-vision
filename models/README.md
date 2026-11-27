@@ -10,7 +10,8 @@ The inference code itself lives in `backend/app/inference/`. This folder only ho
 |---|---|---|
 | `sam_encoder.onnx` | SAM image encoder (once per image) | `SAM_ENCODER` |
 | `sam_decoder.onnx` | SAM prompt decoder (per click/box) | `SAM_DECODER` |
-| `yolo.onnx` | YOLO detector (box pre-labels) | `YOLO_MODEL` |
+| `yolo.onnx` | Main auto-label detector (default YOLOv8s Open Images V7, 601 classes) | `YOLO_MODEL` |
+| `yolo_coco.onnx` | Second detector merged with the main one (default YOLO26n COCO, 80 classes); optional | `YOLO_EXTRA_MODEL` (`""` = off) |
 | `owlv2.onnx` | OWLv2: find every object of the same kind as a marked example | `OWL_MODEL` |
 | `owlv2_text.onnx` | OWLv2 text tower: find every object matching a typed name | `OWL_TEXT_MODEL` |
 | `owlv2_tokenizer.json` | CLIP tokenizer for the text tower | `OWL_TOKENIZER` |
@@ -25,8 +26,10 @@ python -m venv .venv-export && source .venv-export/bin/activate
 pip install -r models/requirements-export.txt
 
 # YOLO detector (COCO classes): writes models/weights/yolo.onnx
-# Default (run.sh): YOLO26n, COCO, 80 classes. Other labels are found by OWLv2 text queries.
-python models/export_yolo.py --weights yolo26n.pt      # or yolo11n.pt / yolov8s-oiv7.pt (Open Images, 601 classes)
+# Default (run.sh): two detectors, merged by the backend. Open Images V7 (601 classes) names many
+# more things; COCO (80 classes) fills in what it misses. Labels neither knows: OWLv2 text queries.
+python models/export_yolo.py --weights yolov8s-oiv7.pt --out models/weights/yolo.onnx
+python models/export_yolo.py --weights yolo26n.pt --out models/weights/yolo_coco.onnx
 
 # SAM 2.1 tiny: downloads the Meta checkpoint, writes sam_encoder.onnx + sam_decoder.onnx
 bash models/export_sam.sh sam2.1_hiera_tiny
@@ -80,7 +83,7 @@ padded with id 0), output `text_embeds [1, D]` (normalised in numpy). The backen
 - SAM 2 / 2.1: Ravi et al., *SAM 2: Segment Anything in Images and Videos*, arXiv:2408.00714. Apache-2.0 (github.com/facebookresearch/sam2).
 - MobileSAM (optional): Zhang et al., arXiv:2306.14289. Apache-2.0.
 - YOLO26 / YOLO11 / YOLOv8: Ultralytics, AGPL-3.0 (github.com/ultralytics/ultralytics).
-- Open Images V7 (only if the optional `yolov8s-oiv7` detector is used; it was tried and is not the default): Kuznetsova et al., *The Open Images Dataset V4*, IJCV 2020; annotations CC BY 4.0 (storage.googleapis.com/openimages/web/index.html).
+- Open Images V7 (training data of the main `yolov8s-oiv7` detector): Kuznetsova et al., *The Open Images Dataset V4*, IJCV 2020; annotations CC BY 4.0 (storage.googleapis.com/openimages/web/index.html).
 - OWLv2: Minderer, Gritsenko, Houlsby, *Scaling Open-Vocabulary Object Detection*, NeurIPS 2023. Checkpoint `google/owlv2-base-patch16-ensemble`, Apache-2.0. The image-guided (one-shot) query follows OWL-ViT (Minderer et al., ECCV 2022) and Hugging Face `transformers` (Apache-2.0). Text queries use the CLIP tokenizer via Hugging Face `tokenizers` (Apache-2.0).
 - samexporter (ONNX export tool only): github.com/vietanhdev/samexporter. Check its license.
 

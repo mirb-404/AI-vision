@@ -75,6 +75,8 @@ export interface Detection {
   class_id: number
   score: number
   box: BoxGeom
+  /** Which detector found it: "yolo" (Open Images), "yolo_coco", "owlv2". */
+  model?: string
 }
 
 export interface DetectResult {

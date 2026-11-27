@@ -99,7 +99,7 @@ def open_vocab_detections(image: Image, names: list[str], known: set[str]) -> tu
             x1, y1 = max(float(xyxy[0]), 0.0), max(float(xyxy[1]), 0.0)
             x2, y2 = min(float(xyxy[2]), float(image.width)), min(float(xyxy[3]), float(image.height))
             if x2 - x1 >= 1 and y2 - y1 >= 1:
-                out.append({"label": name, "class_id": -1, "score": score,
+                out.append({"label": name, "class_id": -1, "score": score, "model": "owlv2",
                             "box": {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1}})
     return out, ms
 

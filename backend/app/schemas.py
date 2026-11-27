@@ -143,6 +143,7 @@ class Detection(BaseModel):
     class_id: int
     score: float
     box: Box
+    model: str = "yolo"  # which detector found it ("yolo", "yolo_coco", "owlv2")
 
 
 class DetectResponse(BaseModel):

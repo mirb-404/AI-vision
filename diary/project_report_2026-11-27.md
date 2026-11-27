@@ -145,9 +145,37 @@ What the user should experience: open an image, and people, faces, helmets and e
 
 **Time budget:** about one day including tests. After that no more features: two days for the Datalab runs, user study, report and video.
 
+### Datalab `./run.sh datalab` result (after `6c27352`)
+
+- Passed:
+  - unit tests (22);
+  - model smoke test (SAM 324 ms encoder / 67 ms decoder, score 0.969; YOLO 5 detections: bus + 4 persons);
+  - UI build;
+  - all end-to-end API checks up to SAM and YOLO detect.
+- **Failed: "YOLO auto-label project: nothing saved".** Cause: the end-to-end check creates a label called "object". With the new "only suggest the project's labels" rule, bus and person were correctly skipped. The rule works; the check was out of date.
+  - Fix: the check now adds a label named after the first class YOLO detected before running auto-label.
+- **`./run.sh: line 1: srv: unbound variable`** after the failure. Cause: the clean-up trap used a `local` variable, which no longer exists when the trap runs after a failed check (`set -u`).
+  - Fix: global `E2E_SRV` / `E2E_DATA`.
+- The ONNX Runtime warnings in the log (shape merge, Memcpy nodes, ScatterND) are harmless and were there before.
+
+### Built: merged detector and exact outlines
+
+- **Merged detector** (`backend/app/inference/yolo.py`: `merge_detections`, `MergedDetector`):
+  - `yolo.onnx` = YOLOv8s Open Images V7 (main) and `yolo_coco.onnx` = YOLO26n COCO (extra), both exported by `run.sh`. Each has a `.source` file, so changing `YOLO_WEIGHTS` / `YOLO_EXTRA_WEIGHTS` re-exports only that model.
+  - Merge rules:
+    1. Boxes from the main model covering more than 80 % of the image are dropped (scenery).
+    2. Boxes from different models with IoU ≥ 0.7 are one object: the more confident one is kept.
+    3. Boxes of the same model never suppress each other, so a face inside a person stays.
+  - Every box is tagged with the model that found it (`model`: `yolo`, `yolo_coco`, `owlv2`). This shows which model contributed what, for the report.
+  - The rest of the app sees one detector with the same interface as before. If `yolo_coco.onnx` is missing, or `YOLO_EXTRA_WEIGHTS=""` / `YOLO_EXTRA_MODEL=""`, it runs the main model alone.
+- **Exact outlines** (editor, setting "Exact outlines", on by default, needs SAM):
+  - Every accepted AI suggestion, including auto-accepted ones, is traced by SAM along the object's edge and saved as an outline. A box SAM cannot trace stays a box.
+  - The SAM decoder runs per box on the already-read image, about 67 ms each on Datalab, all in parallel.
+  - Not changed: "Auto-label all images" on the project page still saves boxes. Outlines there would mean many SAM encoder runs per project, which is deliberately left out.
+- Tests: backend **25 passed**. New: merge (scenery dropped, "Man" vs "person" de-duplicated, face kept, elephant filled in; one model keeps big boxes) and `MergedDetector` (model tags, unique class ids). Frontend `tsc` and build pass; `run.sh` passes `bash -n`.
+
 ## Next
 
-1. Build the merged detector and auto-outlines (see above), with tests.
-2. Push. On Datalab: `git pull`, start `training/run_all.sh` in the background, then `./run.sh` (exports both detectors).
+1. Push. On Datalab: `git pull`, start `training/run_all.sh` in the background, then `./run.sh` (exports both detectors).
 3. Re-test the elephant photo with the 80-class, 601-class and merged detectors. Save screenshots for the report.
 4. Click benchmark, user study, then `python3 evaluation/collect_metrics.py` and send `METRICS.md` for analysis.

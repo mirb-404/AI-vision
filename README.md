@@ -64,7 +64,7 @@ Data (SQLite DB and uploaded images) goes to `./data/`. Change the location with
 
 ## Workflow
 
-1. Create a project and add labels. The auto-label detector (YOLO26n, COCO) knows 80 everyday classes such as `person`, `car` or `elephant`; matching names map automatically. Once a project has labels, the AI only suggests those. Labels it does not know ("rhino", "scratch") are searched by name with OWLv2, so suggestions work for custom labels too.
+1. Create a project and add labels. Auto-label merges two detectors: YOLOv8s trained on Open Images V7 (601 classes, e.g. Man, Human face, Helmet, Footwear) and YOLO26n on COCO (80 classes, fills in what the first misses). Matching names map automatically. Once a project has labels, the AI only suggests those. With **Exact outlines** on (default), SAM traces every AI label along the object's edge. Labels it does not know ("rhino", "scratch") are searched by name with OWLv2, so suggestions work for custom labels too.
 2. Upload images by dragging them in or choosing files.
 3. Choose **AI-assisted** or **Manual** mode and enter an optional participant id for the effort study.
 4. Annotate:

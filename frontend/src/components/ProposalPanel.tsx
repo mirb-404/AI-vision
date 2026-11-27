@@ -6,7 +6,7 @@ import { useAnnotate, type Proposal } from '../store/annotate'
  * questions. Expert view adds the confidence slider and score percentages.
  */
 export function ProposalPanel({ available, detail, detecting, simple, autoSuggest, onAutoSuggest, autoAccept,
-                                onAutoAccept, onDetect, onAccept, onReject }: {
+                                onAutoAccept, outlines, outlinesAvailable, onOutlines, onDetect, onAccept, onReject }: {
   available: boolean
   detail?: string
   detecting: boolean
@@ -15,6 +15,10 @@ export function ProposalPanel({ available, detail, detecting, simple, autoSugges
   onAutoSuggest: (on: boolean) => void
   autoAccept: boolean
   onAutoAccept: (on: boolean) => void
+  /** AI labels traced as exact outlines (SAM) instead of boxes. */
+  outlines: boolean
+  outlinesAvailable: boolean
+  onOutlines: (on: boolean) => void
   onDetect: () => void
   onAccept: (items: Proposal[]) => void
   onReject: (items: Proposal[]) => void
@@ -33,6 +37,8 @@ export function ProposalPanel({ available, detail, detecting, simple, autoSugges
               title="Always on" hint="AI looks at every image you open" />
       <Switch on={autoAccept} disabled={!available} onChange={onAutoAccept}
               title="Mark sure objects for me" hint="Only unsure ones are asked about" />
+      <Switch on={outlines && outlinesAvailable} disabled={!available || !outlinesAvailable} onChange={onOutlines}
+              title="Exact outlines" hint="AI traces each object's edge, not just a box" />
 
       <button className={`relative w-full overflow-hidden rounded-md p-px text-sm disabled:opacity-50 ${detecting ? '' : 'bg-neutral-700'}`}
               onClick={onDetect} disabled={!available || detecting}

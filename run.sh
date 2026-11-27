@@ -20,8 +20,9 @@
 #   DEMO=1                load the 8-image coco8 demo project once (default on for datalab)
 #   SKIP_MODELS=1         don't export model weights
 #   FORCE_CPU=1           use CPU onnxruntime even if a GPU is present
-#   YOLO_WEIGHTS=yolo26n.pt  auto-label detector (default: COCO, 80 classes; yolov8s-oiv7.pt =
-#                            Open Images V7, 601 classes). Changing it re-exports yolo.onnx.
+#   YOLO_WEIGHTS=yolov8s-oiv7.pt   main auto-label detector -> yolo.onnx (Open Images V7, 601 classes)
+#   YOLO_EXTRA_WEIGHTS=yolo26n.pt   second detector merged in -> yolo_coco.onnx (COCO, 80 classes);
+#                                   "" = main detector only. Changing either re-exports it.
 #   SAM_MODEL=sam2.1_hiera_tiny
 
 set -euo pipefail
@@ -33,10 +34,12 @@ MODE="${1:-serve}"
 PORT="${PORT:-8000}"
 HOST="${HOST:-127.0.0.1}"
 WEIGHTS="$ROOT/models/weights"
-# Auto-label detector: COCO (80 classes). Project labels outside them are found by OWLv2 text
-# queries. Open Images V7 (601 classes) was tried and dropped: it missed elephants that COCO finds
-# and drew "Tree" boxes over whole images (diary 2026-11-27).
-YOLO_WEIGHTS="${YOLO_WEIGHTS:-yolo26n.pt}"
+# Auto-label = two detectors merged (diary 2026-11-27): Open Images V7 (601 classes) names far more
+# things; COCO (80 classes) fills in what it misses (e.g. elephants). Labels neither knows are
+# found by OWLv2 text queries.
+YOLO_WEIGHTS="${YOLO_WEIGHTS:-yolov8s-oiv7.pt}"
+YOLO_EXTRA_WEIGHTS="${YOLO_EXTRA_WEIGHTS-yolo26n.pt}"
+if [ -z "$YOLO_EXTRA_WEIGHTS" ]; then export YOLO_EXTRA_MODEL=""; fi  # backend: main detector only
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -54,8 +57,9 @@ check_python() {
 # ---------------------------------------------------------------- models
 export_models() {
   if [ -n "${SKIP_MODELS:-}" ]; then log "Skipping model export (SKIP_MODELS set)"; return; fi
-  # yolo.source records which weights yolo.onnx came from, so a new YOLO_WEIGHTS re-exports it.
-  yolo_stale() { [ ! -f "$WEIGHTS/yolo.onnx" ] || [ "$(cat "$WEIGHTS/yolo.source" 2>/dev/null)" != "$YOLO_WEIGHTS" ]; }
+  # <name>.source records which weights <name>.onnx came from, so new weights re-export it.
+  stale() { [ -n "$2" ] && { [ ! -f "$WEIGHTS/$1.onnx" ] || [ "$(cat "$WEIGHTS/$1.source" 2>/dev/null)" != "$2" ]; }; }
+  yolo_stale() { stale yolo "$YOLO_WEIGHTS" || stale yolo_coco "$YOLO_EXTRA_WEIGHTS"; }
   if ! yolo_stale && [ -f "$WEIGHTS/sam_encoder.onnx" ] && [ -f "$WEIGHTS/sam_decoder.onnx" ]      && [ -f "$WEIGHTS/owlv2.onnx" ] && [ -f "$WEIGHTS/owlv2_text.onnx" ]; then
     log "Model weights present in models/weights"
     return
@@ -68,10 +72,14 @@ export_models() {
     . .venv-export/bin/activate
     pip install -q --upgrade pip
     SAM2_BUILD_CUDA=0 pip install -q -r models/requirements-export.txt
-    if yolo_stale; then
-      # Ultralytics downloads the .pt into the cwd; keep it in models/checkpoints.
-      (cd models/checkpoints && python ../export_yolo.py --weights "$YOLO_WEIGHTS")
+    # Ultralytics downloads the .pt into the cwd; keep it in models/checkpoints.
+    if stale yolo "$YOLO_WEIGHTS"; then
+      (cd models/checkpoints && python ../export_yolo.py --weights "$YOLO_WEIGHTS" --out "$WEIGHTS/yolo.onnx")
       echo "$YOLO_WEIGHTS" > "$WEIGHTS/yolo.source"
+    fi
+    if stale yolo_coco "$YOLO_EXTRA_WEIGHTS"; then
+      (cd models/checkpoints && python ../export_yolo.py --weights "$YOLO_EXTRA_WEIGHTS" --out "$WEIGHTS/yolo_coco.onnx")
+      echo "$YOLO_EXTRA_WEIGHTS" > "$WEIGHTS/yolo_coco.source"
     fi
     if [ ! -f "$WEIGHTS/sam_encoder.onnx" ] || [ ! -f "$WEIGHTS/sam_decoder.onnx" ]; then
       bash models/export_sam.sh "${SAM_MODEL:-sam2.1_hiera_tiny}"
@@ -275,16 +283,19 @@ datalab() {
   e2e_data="$(mktemp -d)"
   (cd backend && DATA_DIR="$e2e_data" exec .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port "$e2e_port" \
      --log-level warning) &
-  local srv=$!
-  trap 'kill "$srv" 2>/dev/null || true; rm -rf "$e2e_data"' EXIT
+  # Global on purpose: the EXIT trap can run after this function returned (failed check), when a
+  # local would be gone and `set -u` would abort with "unbound variable".
+  E2E_SRV=$!
+  E2E_DATA="$e2e_data"
+  trap 'kill "${E2E_SRV:-}" 2>/dev/null || true; rm -rf "${E2E_DATA:-}"' EXIT
   for _ in $(seq 60); do
     curl -fs "http://127.0.0.1:${e2e_port}/api/health" >/dev/null 2>&1 && break
-    kill -0 "$srv" 2>/dev/null || die "test server exited during startup"
+    kill -0 "$E2E_SRV" 2>/dev/null || die "test server exited during startup"
     sleep 1
   done
   (cd backend && .venv/bin/python -m scripts.e2e_check "http://127.0.0.1:${e2e_port}" "$img" "${no_models[@]}")
-  kill "$srv" 2>/dev/null || true
-  wait "$srv" 2>/dev/null || true
+  kill "$E2E_SRV" 2>/dev/null || true
+  wait "$E2E_SRV" 2>/dev/null || true
   rm -rf "$e2e_data"
   trap - EXIT
 

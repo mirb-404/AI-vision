@@ -45,6 +45,7 @@ export function AnnotatePage() {
   const [detecting, setDetecting] = useState(false)
   const [autoSuggest, setAutoSuggest] = useState(() => loadSettings(projectId).autoSuggest)
   const [autoAccept, setAutoAccept] = useState(() => loadSettings(projectId).autoAccept)
+  const [outlines, setOutlines] = useState(() => loadSettings(projectId).outlines)
   const [expert, setExpert] = useState(() => loadSettings(projectId).expert)
   const [suggested, setSuggested] = useState({ added: 0, review: 0, nonce: 0 })
   /** New shape waiting for the user to name it (the 'What is this?' card). */
@@ -295,10 +296,19 @@ export function AnnotatePage() {
       store.removeProposal(p.id)
       effort.log('proposal_accepted', { score: p.score, label: p.label, class_id: p.class_id, auto }, a.id)
     }
-    if (created.length) {
-      store.add(created)
-      effort.commit(created, auto ? 'auto' : 'proposal')
+    if (!created.length) return
+    // Exact outlines: SAM traces each accepted box along the object's edge (the image is read once,
+    // each box then costs a few ms). A box SAM cannot trace stays a box.
+    if (outlines && samReady && id != null) {
+      const traced = await Promise.all(created.map((a) =>
+        api.segment(id, [], a.geometry as BoxGeom).then((r) => r.polygon).catch(() => null)))
+      if (imageIdRef.current !== id) return
+      traced.forEach((poly, i) => {
+        if (poly && poly.length >= 6) created[i] = { ...created[i], kind: 'polygon', geometry: { points: poly } }
+      })
     }
+    store.add(created)
+    effort.commit(created, auto ? 'auto' : 'proposal')
   }
 
   const rejectProposals = (items: Proposal[]) => {
@@ -372,6 +382,11 @@ export function AnnotatePage() {
   const changeAutoSuggest = (on: boolean) => {
     saveSetting(projectId, 'autoSuggest', on)
     setAutoSuggest(on)
+  }
+
+  const changeOutlines = (on: boolean) => {
+    saveSetting(projectId, 'outlines', on)
+    setOutlines(on)
   }
 
   const changeAutoAccept = (on: boolean) => {
@@ -693,6 +708,9 @@ export function AnnotatePage() {
               onAutoSuggest={changeAutoSuggest}
               autoAccept={autoAccept}
               onAutoAccept={changeAutoAccept}
+              outlines={outlines}
+              outlinesAvailable={samReady}
+              onOutlines={changeOutlines}
               onDetect={runDetector}
               onAccept={acceptProposals}
               onReject={rejectProposals}

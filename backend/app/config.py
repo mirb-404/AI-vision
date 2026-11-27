@@ -19,7 +19,12 @@ SAM_DECODER = MODELS_DIR / os.getenv("SAM_DECODER", "sam_decoder.onnx")
 # "sam2": SAM 2.x export (square 1024x1024 resize).
 # "sam1": SAM v1 / MobileSAM export (longest side 1024, zero padding).
 SAM_VARIANT = os.getenv("SAM_VARIANT", "sam2")
+# Auto-label detector (run.sh default: YOLOv8s Open Images V7, 601 classes).
 YOLO_MODEL = MODELS_DIR / os.getenv("YOLO_MODEL", "yolo.onnx")
+# Second detector merged with the first when present (run.sh default: YOLO26n COCO, 80 classes):
+# it finds objects the broad model misses. Set YOLO_EXTRA_MODEL="" to use one detector only.
+_extra = os.getenv("YOLO_EXTRA_MODEL", "yolo_coco.onnx")
+YOLO_EXTRA_MODEL = MODELS_DIR / _extra if _extra else None
 # OWLv2 image-guided detection for "find alike objects" (models/export_owlv2.py).
 OWL_MODEL = MODELS_DIR / os.getenv("OWL_MODEL", "owlv2.onnx")
 # OWLv2 text tower + CLIP tokenizer for "find by name" (type "car", the AI marks every car).

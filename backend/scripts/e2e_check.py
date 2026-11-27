@@ -116,6 +116,9 @@ def main() -> None:
 
         annotations.append({"id": uuid.uuid4().hex, "label_id": label["id"], "kind": "polygon",
                             "source": "ai", "score": seg["score"], "geometry": {"points": seg["polygon"]}})
+        # Auto-label only saves classes the project labels (once it has labels), so add one the
+        # detector just found; 409 = it exists already.
+        api.post(f"/api/projects/{pid}/labels", json={"name": det["detections"][0]["label"]})
         auto = c.expect("YOLO auto-label project", api.post(f"/api/projects/{pid}/auto-label",
                                                              json={"conf": 0.25, "skip_labeled": False})).json()
         if auto["annotations_created"] < 1:
