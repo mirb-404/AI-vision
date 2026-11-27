@@ -140,8 +140,8 @@ def test_auto_label_project(client, monkeypatch):
     monkeypatch.setattr(registry, "get_yolo", lambda: _FakeYolo())
     body = client.post(f"/api/projects/{pid}/auto-label", json={"conf": 0.25}).json()
     assert body["images_labeled"] == 1 and body["images_skipped"] == 0
-    assert body["annotations_created"] == 2  # zero-width box dropped
-    assert body["labels_created"] == ["dog"]  # "Cat" maps to existing "cat"
+    # "Cat" maps to the existing "cat"; "dog" is skipped because the project only labels "cat".
+    assert body["annotations_created"] == 1 and body["labels_created"] == []
 
     anns = client.get(f"/api/images/{image['id']}/annotations").json()
     assert {a["source"] for a in anns} == {"ai"} and all(a["kind"] == "box" for a in anns)
@@ -151,6 +151,13 @@ def test_auto_label_project(client, monkeypatch):
     # Second run skips the now-labelled image.
     again = client.post(f"/api/projects/{pid}/auto-label", json={}).json()
     assert again["images_labeled"] == 0 and again["images_skipped"] == 1
+
+    # A project without labels gets every class, and missing labels are created.
+    other = client.post("/api/projects", json={"name": "No labels"}).json()["id"]
+    client.post(f"/api/projects/{other}/images", files=[("files", ("b.png", _png(), "image/png"))])
+    body = client.post(f"/api/projects/{other}/auto-label", json={"conf": 0.25}).json()
+    assert body["annotations_created"] == 2  # zero-width box dropped
+    assert body["labels_created"] == ["Cat", "dog"]
 
 
 def test_rendered_image_and_images_export(client):

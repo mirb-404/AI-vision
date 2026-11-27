@@ -20,8 +20,8 @@
 #   DEMO=1                load the 8-image coco8 demo project once (default on for datalab)
 #   SKIP_MODELS=1         don't export model weights
 #   FORCE_CPU=1           use CPU onnxruntime even if a GPU is present
-#   YOLO_WEIGHTS=yolov8s-oiv7.pt  auto-label detector (default: Open Images V7, 601 classes;
-#                                 yolo26n.pt = COCO, 80 classes). Changing it re-exports yolo.onnx.
+#   YOLO_WEIGHTS=yolo26n.pt  auto-label detector (default: COCO, 80 classes; yolov8s-oiv7.pt =
+#                            Open Images V7, 601 classes). Changing it re-exports yolo.onnx.
 #   SAM_MODEL=sam2.1_hiera_tiny
 
 set -euo pipefail
@@ -33,9 +33,10 @@ MODE="${1:-serve}"
 PORT="${PORT:-8000}"
 HOST="${HOST:-127.0.0.1}"
 WEIGHTS="$ROOT/models/weights"
-# Auto-label detector. Open Images V7 (601 classes) covers far more objects than COCO (80);
-# project labels outside its classes are still found by OWLv2 text queries.
-YOLO_WEIGHTS="${YOLO_WEIGHTS:-yolov8s-oiv7.pt}"
+# Auto-label detector: COCO (80 classes). Project labels outside them are found by OWLv2 text
+# queries. Open Images V7 (601 classes) was tried and dropped: it missed elephants that COCO finds
+# and drew "Tree" boxes over whole images (diary 2026-11-27).
+YOLO_WEIGHTS="${YOLO_WEIGHTS:-yolo26n.pt}"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }

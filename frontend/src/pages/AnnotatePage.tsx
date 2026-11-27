@@ -317,7 +317,11 @@ export function AnnotatePage() {
       const res = await api.detect(id, 0.05, labelsRef.current.map((l) => l.name))
       if (imageIdRef.current !== id) return // user moved to another image meanwhile
       const existing = useAnnotate.getState().annotations.map(boundingBox)
+      // Once the project has labels, suggest only those: the user said what they are labeling,
+      // so other classes ("tree" boxes over a whole landscape) are noise. No labels yet: suggest all.
+      const wanted = new Set(labelsRef.current.map((l) => l.name.toLowerCase()))
       const fresh = res.detections
+        .filter((d) => !wanted.size || wanted.has(d.label.toLowerCase()))
         .filter((d) => !existing.some((b) => boxIou(b, d.box) >= 0.5))
         .map((d) => ({ ...d, id: uid() }))
       detectionsRef.current = res.detections

@@ -121,6 +121,7 @@ def auto_label_project(project_id: int, body: AutoLabelRequest, db: Session = De
     """Run YOLO on every image of the project and save the detections as annotations.
 
     Project labels YOLO does not know are searched with OWLv2 text queries (when installed).
+    When the project has labels, only those classes are saved; with no labels, every class is.
 
     Detections become boxes with source "ai" and their score. Class names map to
     project labels by name (case-insensitive); missing labels are created.
@@ -132,6 +133,7 @@ def auto_label_project(project_id: int, body: AutoLabelRequest, db: Session = De
     counts = annotation_counts(db, [i.id for i in images])  # type: ignore[misc]
     labels = {l.name.lower(): l for l in db.exec(select(Label).where(Label.project_id == project_id)).all()}
     project_names = [l.name for l in labels.values()]  # labels YOLO may not know: OWLv2 looks for them
+    wanted = {n.lower() for n in project_names}
     known = {n.lower() for n in yolo.names.values()}
     used_colors = [l.color for l in labels.values()]
     created_labels: list[str] = []
@@ -152,6 +154,8 @@ def auto_label_project(project_id: int, body: AutoLabelRequest, db: Session = De
             db.add(Event(project_id=project_id, image_id=image.id, kind="inference",
                          payload={"model": "owlv2", "stage": "auto_label_text", "ms": round(ms_owl, 2)}))
         detections = detections + [d for d in extra if d["score"] >= body.conf]
+        if project_names:  # the project says what to label: skip other classes (same rule as the editor)
+            detections = [d for d in detections if d["label"].lower() in wanted]
         now = utcnow()
         for d in detections:
             box = {k: float(d["box"][k]) for k in ("x", "y", "w", "h")}
