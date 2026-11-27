@@ -43,6 +43,19 @@ Results go to `evaluation/results/<name>/`: `summary.md` (table for the report),
 - GrabCut and Berkeley are small and classic; SAM may have seen similar images in SA-1B.
 - "Manual vertices" counts clicks, not time: placing an accurate vertex is slower than a SAM click.
 
+## Share all metrics: `collect_metrics.py`
+
+Run on the Linux machine from the repo root, with the app running (`./run.sh`):
+
+```bash
+python3 evaluation/collect_metrics.py              # add --no-events to leave out the raw log
+```
+
+It writes `metrics_bundle_<date>/` and a `.zip`: `METRICS.md` (all numbers in one readable file),
+`environment.json` (commit, GPU, model files), training and evaluation results, and per project the
+app's stats, AI scorecard and events.csv. Text files only. Bundles are git-ignored because events.csv
+holds participant names.
+
 ## References
 
 - Sofiiuk, Petrov, Konushin, "Reviving Iterative Training with Mask Guidance for Interactive Segmentation" (RITM), arXiv:2102.06583.

@@ -28,3 +28,6 @@ rules.md
 
 # Benchmark downloads
 evaluation/datasets/
+
+# Metric bundles for sharing (may contain participant names)
+metrics_bundle_*
