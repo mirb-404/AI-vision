@@ -75,7 +75,9 @@ export const api = {
   textSearch: (imageId: number, body: { text: string; label_id: number; save: boolean; strictness?: number }) =>
     request<SimilarResult>(`/images/${imageId}/text-search`, json('POST', body)),
   undoSimilar: (ids: string[]) => request<{ deleted: number }>('/similar/undo', json('POST', { ids })),
-  detect: (imageId: number, conf = 0.1) => request<DetectResult>(`/images/${imageId}/detect`, json('POST', { conf })),
+  /** YOLO boxes; label names YOLO does not know are searched with OWLv2 (open vocabulary). */
+  detect: (imageId: number, conf = 0.1, names: string[] = []) =>
+    request<DetectResult>(`/images/${imageId}/detect`, json('POST', { conf, names })),
   autoLabelProject: (projectId: number, conf: number, skipLabeled: boolean) =>
     request<AutoLabelResult>(`/projects/${projectId}/auto-label`, json('POST', { conf, skip_labeled: skipLabeled })),
 

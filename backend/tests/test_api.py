@@ -121,6 +121,8 @@ def test_events_and_stats(client):
 
 
 class _FakeYolo:
+    names = {0: "cat", 1: "dog"}
+
     def detect(self, rgb, conf, iou):
         h, w = rgb.shape[:2]
         return [{"label": "Cat", "class_id": 15, "score": 0.9, "box": {"x": 2, "y": 2, "w": w / 2, "h": h / 2}},

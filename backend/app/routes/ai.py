@@ -68,18 +68,59 @@ def segment(image_id: int, body: SegmentRequest, db: Session = Depends(get_sessi
     return SegmentResponse(polygon=polygon, score=score, latency_ms=decode_ms, embed_ms=embed_ms)
 
 
+MAX_OPEN_VOCAB_NAMES = 20  # OWLv2 text queries per image (each costs a cheap scoring pass)
+
+
+def open_vocab_detections(image: Image, names: list[str], known: set[str]) -> tuple[list[dict], float]:
+    """Boxes for label names the detector does not know, from OWLv2 text queries.
+
+    YOLO only knows its training classes (80 for COCO, 601 for Open Images V7). A project label
+    outside them ("rhino", "scratch") would never get a suggestion; OWLv2 is open-vocabulary, so it
+    looks for the name itself. Returns ([] , 0) when OWLv2 is not installed: suggestions then come
+    from YOLO alone, as before. Detections use class_id -1 (no detector class).
+    """
+    wanted = []
+    for n in names:
+        n = n.strip()
+        if n and n.lower() not in known and n.lower() not in {w.lower() for w in wanted}:
+            wanted.append(n)
+    if not wanted:
+        return [], 0.0
+    try:
+        owl, text = registry.get_owl(), registry.get_owl_text()
+    except registry.ModelUnavailable:
+        return [], 0.0
+    patches, _, ms = owl.embed(image.id, config.IMAGES_DIR / image.stored_name)
+    out = []
+    for name in wanted[:MAX_OPEN_VOCAB_NAMES]:
+        query, ms_text = text.encode(name)
+        ms += ms_text
+        for xyxy, score in owl_lib.detect_like(patches, query, owl_lib.text_threshold(0.5)):
+            x1, y1 = max(float(xyxy[0]), 0.0), max(float(xyxy[1]), 0.0)
+            x2, y2 = min(float(xyxy[2]), float(image.width)), min(float(xyxy[3]), float(image.height))
+            if x2 - x1 >= 1 and y2 - y1 >= 1:
+                out.append({"label": name, "class_id": -1, "score": score,
+                            "box": {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1}})
+    return out, ms
+
+
 @router.post("/images/{image_id}/detect", response_model=DetectResponse)
 def detect(image_id: int, body: DetectRequest, db: Session = Depends(get_session)):
     image = image_or_404(db, image_id)
     yolo = _model(registry.get_yolo)
     detections, ms = yolo.detect(load_rgb(config.IMAGES_DIR / image.stored_name), body.conf, body.iou)
     _log_inference(db, image.project_id, image_id, "yolo", "detect", ms)
-    return DetectResponse(detections=detections, latency_ms=ms)
+    extra, ms_owl = open_vocab_detections(image, body.names, {n.lower() for n in yolo.names.values()})
+    if ms_owl:
+        _log_inference(db, image.project_id, image_id, "owlv2", "detect_text", ms_owl)
+    return DetectResponse(detections=detections + extra, latency_ms=ms + ms_owl)
 
 
 @router.post("/projects/{project_id}/auto-label", response_model=AutoLabelResponse)
 def auto_label_project(project_id: int, body: AutoLabelRequest, db: Session = Depends(get_session)):
     """Run YOLO on every image of the project and save the detections as annotations.
+
+    Project labels YOLO does not know are searched with OWLv2 text queries (when installed).
 
     Detections become boxes with source "ai" and their score. Class names map to
     project labels by name (case-insensitive); missing labels are created.
@@ -90,6 +131,8 @@ def auto_label_project(project_id: int, body: AutoLabelRequest, db: Session = De
     images = db.exec(select(Image).where(Image.project_id == project_id).order_by(Image.id)).all()  # type: ignore[arg-type]
     counts = annotation_counts(db, [i.id for i in images])  # type: ignore[misc]
     labels = {l.name.lower(): l for l in db.exec(select(Label).where(Label.project_id == project_id)).all()}
+    project_names = [l.name for l in labels.values()]  # labels YOLO may not know: OWLv2 looks for them
+    known = {n.lower() for n in yolo.names.values()}
     used_colors = [l.color for l in labels.values()]
     created_labels: list[str] = []
     labeled = skipped = created = 0
@@ -103,6 +146,12 @@ def auto_label_project(project_id: int, body: AutoLabelRequest, db: Session = De
         total_ms += ms
         db.add(Event(project_id=project_id, image_id=image.id, kind="inference",
                      payload={"model": "yolo", "stage": "auto_label", "ms": round(ms, 2)}))
+        extra, ms_owl = open_vocab_detections(image, project_names, known)
+        if ms_owl:
+            total_ms += ms_owl
+            db.add(Event(project_id=project_id, image_id=image.id, kind="inference",
+                         payload={"model": "owlv2", "stage": "auto_label_text", "ms": round(ms_owl, 2)}))
+        detections = detections + [d for d in extra if d["score"] >= body.conf]
         now = utcnow()
         for d in detections:
             box = {k: float(d["box"][k]) for k in ("x", "y", "w", "h")}

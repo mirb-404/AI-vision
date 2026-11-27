@@ -239,7 +239,7 @@ export function ProjectPage() {
 }
 
 const PROJECT_TOUR: TourStep[] = [
-  { target: 'labels', title: 'Labels', body: 'Create the classes you want to annotate. Use COCO names (person, car, dog…) so YOLO boxes match them.' },
+  { target: 'labels', title: 'Labels', body: 'Create the things you want to mark, in plain words (person, car, helmet, rhino…). The AI suggests boxes for any name, so you can use your own.' },
   { target: 'session', title: 'Labeling session', body: 'Choose AI-assisted or manual. Time and clicks are logged per mode to measure the effort AI saves.' },
   { target: 'autolabel-all', title: 'Auto-label all images', body: 'YOLO labels every image at once and saves the boxes. Open an image afterwards to check and fix them.' },
   { target: 'export', title: 'Export', body: 'Download the dataset as COCO or YOLO (images + labels), or as JPEGs with the annotations drawn on.' },
@@ -304,7 +304,7 @@ function LabelManager({ projectId, labels, onChange, onError }: {
       </form>
       {labels.length === 0 ? (
         <p className="text-xs text-neutral-500">
-          No labels yet. Tip: use COCO class names (person, car, dog…) so YOLO proposals map to them.
+          No labels yet. Add the things you want to mark in plain words (car, helmet, rhino…); the AI suggests boxes for any name.
         </p>
       ) : (
         <ul className="space-y-1">

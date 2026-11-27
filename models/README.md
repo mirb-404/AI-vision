@@ -25,7 +25,8 @@ python -m venv .venv-export && source .venv-export/bin/activate
 pip install -r models/requirements-export.txt
 
 # YOLO detector (COCO classes): writes models/weights/yolo.onnx
-python models/export_yolo.py --weights yolo26n.pt      # or yolo11n.pt / yolov8n.pt
+# Default (run.sh): YOLOv8s trained on Open Images V7, 601 classes. yolo26n.pt = COCO, 80 classes.
+python models/export_yolo.py --weights yolov8s-oiv7.pt   # or yolo26n.pt / yolo11n.pt
 
 # SAM 2.1 tiny: downloads the Meta checkpoint, writes sam_encoder.onnx + sam_decoder.onnx
 bash models/export_sam.sh sam2.1_hiera_tiny
@@ -79,6 +80,7 @@ padded with id 0), output `text_embeds [1, D]` (normalised in numpy). The backen
 - SAM 2 / 2.1: Ravi et al., *SAM 2: Segment Anything in Images and Videos*, arXiv:2408.00714. Apache-2.0 (github.com/facebookresearch/sam2).
 - MobileSAM (optional): Zhang et al., arXiv:2306.14289. Apache-2.0.
 - YOLO26 / YOLO11 / YOLOv8: Ultralytics, AGPL-3.0 (github.com/ultralytics/ultralytics).
+- Open Images V7 (training data of the default `yolov8s-oiv7` detector): Kuznetsova et al., *The Open Images Dataset V4*, IJCV 2020; annotations CC BY 4.0 (storage.googleapis.com/openimages/web/index.html).
 - OWLv2: Minderer, Gritsenko, Houlsby, *Scaling Open-Vocabulary Object Detection*, NeurIPS 2023. Checkpoint `google/owlv2-base-patch16-ensemble`, Apache-2.0. The image-guided (one-shot) query follows OWL-ViT (Minderer et al., ECCV 2022) and Hugging Face `transformers` (Apache-2.0). Text queries use the CLIP tokenizer via Hugging Face `tokenizers` (Apache-2.0).
 - samexporter (ONNX export tool only): github.com/vietanhdev/samexporter. Check its license.
 

@@ -64,7 +64,7 @@ Data (SQLite DB and uploaded images) goes to `./data/`. Change the location with
 
 ## Workflow
 
-1. Create a project and add labels. Use COCO class names, such as `person` or `car`, so YOLO proposals map to your labels automatically. A proposal with no matching label creates one.
+1. Create a project and add labels. The auto-label detector (YOLOv8s, Open Images V7) knows 601 everyday classes such as `person`, `car` or `helmet`; matching names map automatically, and a suggestion with no matching label creates one. Labels it does not know ("rhino", "scratch") are searched by name with OWLv2, so suggestions work for custom labels too.
 2. Upload images by dragging them in or choosing files.
 3. Choose **AI-assisted** or **Manual** mode and enter an optional participant id for the effort study.
 4. Annotate:

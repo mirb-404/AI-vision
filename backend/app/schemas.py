@@ -133,6 +133,9 @@ class SegmentResponse(BaseModel):
 class DetectRequest(BaseModel):
     conf: float = Field(default=0.1, ge=0.0, le=1.0)
     iou: float = Field(default=0.45, ge=0.0, le=1.0)
+    # Project label names. Names the detector does not know are searched with OWLv2 text queries
+    # (open vocabulary), so suggestions also work for custom labels such as "rhino" or "scratch".
+    names: list[str] = Field(default_factory=list, max_length=50)
 
 
 class Detection(BaseModel):

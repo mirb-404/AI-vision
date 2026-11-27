@@ -20,7 +20,9 @@
 #   DEMO=1                load the 8-image coco8 demo project once (default on for datalab)
 #   SKIP_MODELS=1         don't export model weights
 #   FORCE_CPU=1           use CPU onnxruntime even if a GPU is present
-#   YOLO_WEIGHTS=yolo26n.pt   SAM_MODEL=sam2.1_hiera_tiny
+#   YOLO_WEIGHTS=yolov8s-oiv7.pt  auto-label detector (default: Open Images V7, 601 classes;
+#                                 yolo26n.pt = COCO, 80 classes). Changing it re-exports yolo.onnx.
+#   SAM_MODEL=sam2.1_hiera_tiny
 
 set -euo pipefail
 
@@ -31,6 +33,9 @@ MODE="${1:-serve}"
 PORT="${PORT:-8000}"
 HOST="${HOST:-127.0.0.1}"
 WEIGHTS="$ROOT/models/weights"
+# Auto-label detector. Open Images V7 (601 classes) covers far more objects than COCO (80);
+# project labels outside its classes are still found by OWLv2 text queries.
+YOLO_WEIGHTS="${YOLO_WEIGHTS:-yolov8s-oiv7.pt}"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -48,7 +53,9 @@ check_python() {
 # ---------------------------------------------------------------- models
 export_models() {
   if [ -n "${SKIP_MODELS:-}" ]; then log "Skipping model export (SKIP_MODELS set)"; return; fi
-  if [ -f "$WEIGHTS/yolo.onnx" ] && [ -f "$WEIGHTS/sam_encoder.onnx" ] && [ -f "$WEIGHTS/sam_decoder.onnx" ]      && [ -f "$WEIGHTS/owlv2.onnx" ] && [ -f "$WEIGHTS/owlv2_text.onnx" ]; then
+  # yolo.source records which weights yolo.onnx came from, so a new YOLO_WEIGHTS re-exports it.
+  yolo_stale() { [ ! -f "$WEIGHTS/yolo.onnx" ] || [ "$(cat "$WEIGHTS/yolo.source" 2>/dev/null)" != "$YOLO_WEIGHTS" ]; }
+  if ! yolo_stale && [ -f "$WEIGHTS/sam_encoder.onnx" ] && [ -f "$WEIGHTS/sam_decoder.onnx" ]      && [ -f "$WEIGHTS/owlv2.onnx" ] && [ -f "$WEIGHTS/owlv2_text.onnx" ]; then
     log "Model weights present in models/weights"
     return
   fi
@@ -60,9 +67,10 @@ export_models() {
     . .venv-export/bin/activate
     pip install -q --upgrade pip
     SAM2_BUILD_CUDA=0 pip install -q -r models/requirements-export.txt
-    if [ ! -f "$WEIGHTS/yolo.onnx" ]; then
+    if yolo_stale; then
       # Ultralytics downloads the .pt into the cwd; keep it in models/checkpoints.
-      (cd models/checkpoints && python ../export_yolo.py --weights "${YOLO_WEIGHTS:-yolo26n.pt}")
+      (cd models/checkpoints && python ../export_yolo.py --weights "$YOLO_WEIGHTS")
+      echo "$YOLO_WEIGHTS" > "$WEIGHTS/yolo.source"
     fi
     if [ ! -f "$WEIGHTS/sam_encoder.onnx" ] || [ ! -f "$WEIGHTS/sam_decoder.onnx" ]; then
       bash models/export_sam.sh "${SAM_MODEL:-sam2.1_hiera_tiny}"

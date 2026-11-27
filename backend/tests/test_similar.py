@@ -171,3 +171,32 @@ def test_text_search_api_finds_named_objects(client, monkeypatch):
 def test_text_threshold_rises_with_strictness():
     assert owl.text_threshold(0) < owl.text_threshold(0.5) < owl.text_threshold(1)
     assert abs(owl.text_threshold(0.5) - 0.2) < 1e-9
+
+
+class _FakeYoloCat:
+    names = {0: "cat"}
+
+    def detect(self, rgb, conf, iou):
+        return [{"label": "cat", "class_id": 0, "score": 0.9, "box": {"x": 1, "y": 1, "w": 5, "h": 5}}], 2.0
+
+
+def test_detect_adds_open_vocab_boxes_for_unknown_labels(client, monkeypatch):
+    from app.inference import registry
+
+    pid, _, image = _setup(client)
+    iid = image["id"]
+    monkeypatch.setattr(registry, "get_yolo", lambda: _FakeYoloCat())
+    # Without OWLv2 weights: YOLO only, no error.
+    res = client.post(f"/api/images/{iid}/detect", json={"names": ["cat", "ball"]}).json()
+    assert [d["label"] for d in res["detections"]] == ["cat"]
+
+    monkeypatch.setattr(registry, "get_owl", lambda: _FakeOwl())
+    monkeypatch.setattr(registry, "get_owl_text", lambda: _FakeText())
+    res = client.post(f"/api/images/{iid}/detect", json={"names": ["Cat", "ball", "BALL"]}).json()
+    labels = [d["label"] for d in res["detections"]]
+    assert labels.count("cat") == 1 and labels.count("ball") == 2  # both balls; "cat" left to YOLO
+    assert all(d["class_id"] == -1 for d in res["detections"] if d["label"] == "ball")
+
+    client.post(f"/api/projects/{pid}/labels", json={"name": "ball", "color": "#00ff00"})
+    out = client.post(f"/api/projects/{pid}/auto-label", json={"conf": 0.25}).json()
+    assert out["annotations_created"] == 3 and out["labels_created"] == []

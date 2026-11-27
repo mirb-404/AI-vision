@@ -314,7 +314,7 @@ export function AnnotatePage() {
     const id = image.id
     setDetecting(true)
     try {
-      const res = await api.detect(id, 0.05)
+      const res = await api.detect(id, 0.05, labelsRef.current.map((l) => l.name))
       if (imageIdRef.current !== id) return // user moved to another image meanwhile
       const existing = useAnnotate.getState().annotations.map(boundingBox)
       const fresh = res.detections
