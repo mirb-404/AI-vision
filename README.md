@@ -77,6 +77,8 @@ Data (SQLite DB and uploaded images) goes to `./data/`. Change the location with
    - **⧉ Find alike**: after marking one object, the AI offers to mark every object of that kind in all images.
    - **✦ Find by name**: type a name ("car", "helmet"); the AI marks every one in all images, also classes YOLO does not know.
    - **✦ Remove AI labels** (top right of the image) removes everything the AI added to this image, with Undo.
+   - **Attributes**: select an object to mark it *Partly hidden* (occluded) or *Cut off at edge* (truncated) and add a note. The AI pre-fills both (✦) from the object's position and overlaps.
+   - **More kinds of things** (AI panel, off by default): OWLv2 also looks for the 1,203 LVIS classes. Richer labels, slower and less sure.
 5. Click **Mark done**, which moves you to the next image. Annotations autosave.
 6. Optional: **Auto-label all images** on the project page runs YOLO over every image and saves the boxes as AI annotations. By default it skips images that already have annotations.
 7. Export from the project page: COCO, YOLO or Pascal VOC zips (images plus labels), or **Annotated images** (JPEGs with the labels drawn on). **Label these next** asks the AI which new images it is least sure about (label those first before fine-tuning).

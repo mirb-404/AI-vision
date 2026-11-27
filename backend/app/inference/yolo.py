@@ -81,7 +81,7 @@ def _iou(a: dict, b: dict) -> float:
     return inter / union if union > 0 else 0.0
 
 
-def merge_detections(per_model: list[list[dict]], image_area: float) -> list[dict]:
+def merge_detections(per_model: list[list[dict]], image_area: float, drop_giant: set[int] | None = None) -> list[dict]:
     """Merge the boxes of several detectors into one list, most confident first.
 
     per_model[0] is the broad model (Open Images, 601 classes): it names many more things but also
@@ -90,13 +90,15 @@ def merge_detections(per_model: list[list[dict]], image_area: float) -> list[dic
     Boxes from different models that overlap by IoU >= SAME_OBJECT_IOU are the same object under two
     names ("person" / "Man"): the more confident one is kept. Boxes of the same model are already
     de-duplicated by that model's NMS, so they never suppress each other here (a face inside a
-    person stays).
+    person stays). drop_giant overrides which models lose their giant boxes (default: model 0).
     """
+    if drop_giant is None:
+        drop_giant = {0} if len(per_model) > 1 else set()
     pool = []
     for m, dets in enumerate(per_model):
         for d in dets:
             b = d["box"]
-            if m == 0 and len(per_model) > 1 and b["w"] * b["h"] > GIANT_BOX * image_area:
+            if m in drop_giant and b["w"] * b["h"] > GIANT_BOX * image_area:
                 continue
             pool.append((m, d))
     pool.sort(key=lambda md: -md[1]["score"])

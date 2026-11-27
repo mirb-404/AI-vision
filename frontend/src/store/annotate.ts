@@ -38,6 +38,8 @@ interface AnnotateState {
   /** Remove one annotation (optional) and add new ones as a single undo step. */
   replace: (removeId: string | null, items: Annotation[]) => void
   update: (id: string, change: Partial<Annotation>) => void
+  /** Change an object's attributes. Not a fix of the AI's shape or name, so the source stays. */
+  setAttributes: (id: string, attributes: Annotation['attributes']) => void
   remove: (id: string) => void
   /** Remove several annotations as one undo step. */
   removeMany: (ids: string[]) => void
@@ -102,6 +104,9 @@ export const useAnnotate = create<AnnotateState>((set, get) => {
       effort.log('annotation_edited', { source_before: before.source, kind: before.kind,
                                         what: Object.keys(change) }, id)
     },
+
+    setAttributes: (id, attributes) =>
+      commit(get().annotations.map((a) => (a.id === id ? { ...a, attributes } as Annotation : a))),
 
     removeMany: (ids) => {
       const drop = new Set(ids)

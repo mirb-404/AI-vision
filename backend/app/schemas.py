@@ -61,6 +61,9 @@ class UploadResult(BaseModel):
     errors: list[UploadError]
 
 
+ATTRIBUTE_KEYS = ("occluded", "truncated")  # yes/no attributes; plus a free "note"
+
+
 class AnnotationIn(BaseModel):
     id: str = Field(min_length=1, max_length=64)
     label_id: int
@@ -68,6 +71,8 @@ class AnnotationIn(BaseModel):
     geometry: dict[str, Any]
     source: Source = "manual"
     score: float | None = None
+    # {"occluded": bool, "truncated": bool, "note": str, "ai_suggested": ["truncated", ...]}
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def check_geometry(self) -> "AnnotationIn":
@@ -88,7 +93,27 @@ class AnnotationIn(BaseModel):
                 self.geometry = {"points": [float(v) for v in pts]}
             except (TypeError, ValueError) as exc:
                 raise ValueError("polygon points must be numbers") from exc
+        self.attributes = _clean_attributes(self.attributes)
         return self
+
+
+def _clean_attributes(raw: dict[str, Any]) -> dict[str, Any]:
+    """Keep only known attributes with the right types (unknown keys are dropped)."""
+    out: dict[str, Any] = {}
+    for k in ATTRIBUTE_KEYS:
+        if k in raw:
+            if not isinstance(raw[k], bool):
+                raise ValueError(f"attribute {k} must be true or false")
+            out[k] = raw[k]
+    note = raw.get("note")
+    if note:
+        if not isinstance(note, str) or len(note) > 500:
+            raise ValueError("note must be text of at most 500 characters")
+        out["note"] = note
+    sugg = raw.get("ai_suggested")
+    if sugg:
+        out["ai_suggested"] = [k for k in sugg if k in ATTRIBUTE_KEYS] if isinstance(sugg, list) else []
+    return out
 
 
 class AnnotationOut(AnnotationIn):
@@ -136,6 +161,8 @@ class DetectRequest(BaseModel):
     # Project label names. Names the detector does not know are searched with OWLv2 text queries
     # (open vocabulary), so suggestions also work for custom labels such as "rhino" or "scratch".
     names: list[str] = Field(default_factory=list, max_length=50)
+    # "More kinds of things": also run OWLv2 over the 1203-class LVIS vocabulary and merge it in.
+    vocab: bool = False
 
 
 class Detection(BaseModel):
@@ -183,6 +210,7 @@ class AiStatus(BaseModel):
     yolo: ModelStatus
     owl: ModelStatus  # OWLv2, find alike objects
     owl_text: ModelStatus  # OWLv2 text tower, find by name
+    owl_vocab: ModelStatus  # OWLv2 + LVIS vocabulary, more kinds of things
 
 
 class SessionCreate(BaseModel):
@@ -230,6 +258,19 @@ class SimilarRequest(BaseModel):
         if self.box is None and (self.polygon is None or len(self.polygon) < 6 or len(self.polygon) % 2):
             raise ValueError("give a box or a polygon with at least 3 points")
         return self
+
+
+class ResetRequest(BaseModel):
+    """Start a project over without re-uploading: annotations go, images stay."""
+    clear_stats: bool = False  # also delete the effort log and labeling sessions
+    remove_labels: bool = False  # also delete the label classes
+
+
+class ResetResponse(BaseModel):
+    annotations_deleted: int
+    images_reset: int
+    events_deleted: int
+    labels_deleted: int
 
 
 class NextImage(BaseModel):

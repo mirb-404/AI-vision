@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..schemas import LabelCreate, ProjectCreate, ProjectOut
-from ..tables import Annotation, Image, Label, Project
+from ..schemas import LabelCreate, ProjectCreate, ProjectOut, ResetRequest, ResetResponse
+from ..tables import Annotation, Event, Image, Label, LabelingSession, Project
 from .common import annotation_counts, project_or_404
 
 router = APIRouter(prefix="/api", tags=["projects"])
@@ -72,3 +72,43 @@ def delete_label(label_id: int, db: Session = Depends(get_session)):
         raise HTTPException(409, "label is used by annotations; delete those first")
     db.delete(label)
     db.commit()
+
+
+@router.post("/projects/{project_id}/reset", response_model=ResetResponse)
+def reset_project(project_id: int, body: ResetRequest, db: Session = Depends(get_session)):
+    """Delete every annotation of the project and mark all images "new" again (images are kept).
+
+    Optional: also delete the effort log + labeling sessions (clear_stats) and the labels
+    (remove_labels). Cannot be undone; the UI asks for confirmation first.
+    """
+    project_or_404(db, project_id)
+    images = db.exec(select(Image).where(Image.project_id == project_id)).all()
+    ids = [i.id for i in images]
+    anns = db.exec(select(Annotation).where(Annotation.image_id.in_(ids))).all() if ids else []  # type: ignore[union-attr]
+    for a in anns:
+        db.delete(a)
+    reset = 0
+    for image in images:
+        if image.status != "new":
+            image.status = "new"
+            db.add(image)
+            reset += 1
+    events = 0
+    if body.clear_stats:
+        rows = db.exec(select(Event).where(Event.project_id == project_id)).all()
+        events = len(rows)
+        for e in rows:
+            db.delete(e)
+        db.flush()  # events reference sessions: remove them first
+        for s in db.exec(select(LabelingSession).where(LabelingSession.project_id == project_id)).all():
+            db.delete(s)
+    labels = 0
+    if body.remove_labels:
+        db.flush()  # annotations reference labels: remove them first
+        rows = db.exec(select(Label).where(Label.project_id == project_id)).all()
+        labels = len(rows)
+        for l in rows:
+            db.delete(l)
+    db.commit()
+    return ResetResponse(annotations_deleted=len(anns), images_reset=reset, events_deleted=events,
+                         labels_deleted=labels)

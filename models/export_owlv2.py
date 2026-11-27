@@ -16,6 +16,11 @@ It also writes the text tower for "find by name" (type "car", the AI marks every
     owlv2_tokenizer.json     CLIP tokenizer (Hugging Face `tokenizers` format)
 The script checks every ONNX output against PyTorch before finishing.
 
+Finally it writes the vocabulary for "More kinds of things":
+    owlv2_lvis.npz           names (1203 LVIS classes) + their unit text embeddings (float16)
+LVIS (Gupta et al., CVPR 2019) class names come from the Ultralytics dataset config `lvis.yaml`.
+Only this step: python models/export_owlv2.py --vocab-only
+
 Model: google/owlv2-base-patch16-ensemble, Apache-2.0 (Minderer et al., NeurIPS 2023).
 """
 
@@ -102,16 +107,58 @@ def export_text(model: Owlv2ForObjectDetection, name: str, out: Path, tok_out: P
         raise SystemExit(f"ONNX text output differs from PyTorch by {diff}")
 
 
+def lvis_names() -> list[str]:
+    """LVIS v1 class names (1203), from the Ultralytics dataset config, first synonym, readable."""
+    import re
+
+    import ultralytics
+    import yaml
+
+    cfg = Path(ultralytics.__file__).parent / "cfg" / "datasets" / "lvis.yaml"
+    raw = yaml.safe_load(cfg.read_text(encoding="utf-8"))["names"]
+    names = [str(raw[k]) for k in sorted(raw)]
+    clean = [re.sub(r"\s+", " ", n.split("/")[0].replace("_", " ")).strip() for n in names]
+    if len(clean) != 1203:
+        print(f"warning: expected 1203 LVIS names, got {len(clean)}")
+    return clean
+
+
+def export_vocab(model: Owlv2ForObjectDetection, name: str, out: Path) -> None:
+    """Unit text embeddings of every LVIS class name, for one-pass "find every kind of thing"."""
+    import re
+
+    tokenizer = AutoTokenizer.from_pretrained(name, use_fast=True)
+    names = lvis_names()
+    # Prompt without parenthesised hints: "bow (weapon)" -> "a photo of a bow".
+    prompts = [TEXT_PROMPT.format(re.sub(r"\s*\(.*?\)", "", n).strip() or n) for n in names]
+    wrapper = TextEmbeds(model).eval()
+    chunks = []
+    with torch.no_grad():
+        for i in range(0, len(prompts), 64):
+            enc = tokenizer(prompts[i:i + 64], padding="max_length", max_length=TEXT_LEN, truncation=True,
+                            return_tensors="pt")
+            emb = wrapper(enc["input_ids"].long(), enc["attention_mask"].long())
+            chunks.append(torch.nn.functional.normalize(emb, dim=-1).numpy())
+    embeds = np.concatenate(chunks).astype(np.float16)
+    np.savez_compressed(out, names=np.array(names), embeds=embeds)
+    print(f"wrote {out}: {len(names)} classes, embeddings {embeds.shape}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", default="google/owlv2-base-patch16-ensemble")
     parser.add_argument("--out", default=str(ROOT / "weights" / "owlv2.onnx"))
     parser.add_argument("--text-out", default=str(ROOT / "weights" / "owlv2_text.onnx"))
     parser.add_argument("--tokenizer-out", default=str(ROOT / "weights" / "owlv2_tokenizer.json"))
+    parser.add_argument("--vocab-out", default=str(ROOT / "weights" / "owlv2_lvis.npz"))
+    parser.add_argument("--vocab-only", action="store_true", help="only write the LVIS vocabulary")
     parser.add_argument("--check-image", default=None, help="Image for the ONNX-vs-PyTorch check (default: random)")
     args = parser.parse_args()
 
     model = Owlv2ForObjectDetection.from_pretrained(args.model).eval()
+    if args.vocab_only:
+        export_vocab(model, args.model, Path(args.vocab_out))
+        return
     wrapper = PatchOutputs(model).eval()
     if args.check_image:
         from PIL import Image
@@ -139,6 +186,7 @@ def main() -> None:
             raise SystemExit(f"ONNX output {name} differs from PyTorch by {diff}")
     export_text(model, args.model, Path(args.text_out), Path(args.tokenizer_out))
     print("ONNX matches PyTorch")
+    export_vocab(model, args.model, Path(args.vocab_out))
 
 
 if __name__ == "__main__":

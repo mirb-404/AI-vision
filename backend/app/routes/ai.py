@@ -11,6 +11,7 @@ from ..db import get_session
 from ..inference import owl as owl_lib
 from ..inference import registry
 from ..inference.sam import load_rgb
+from ..inference.yolo import merge_detections
 from ..schemas import (AiStatus, AutoLabelRequest, AutoLabelResponse, DetectRequest, DetectResponse,
                        EmbedResponse, NextImage, NextImagesResponse, SegmentRequest, SegmentResponse, SimilarRegion, SimilarRequest,
                        SimilarResponse, TextSearchRequest, UndoAiRequest, UndoAiResponse)
@@ -113,7 +114,32 @@ def detect(image_id: int, body: DetectRequest, db: Session = Depends(get_session
     extra, ms_owl = open_vocab_detections(image, body.names, {n.lower() for n in yolo.names.values()})
     if ms_owl:
         _log_inference(db, image.project_id, image_id, "owlv2", "detect_text", ms_owl)
+    if body.vocab:
+        vocab, ms_vocab = vocab_detections(image)
+        if ms_vocab or vocab:
+            _log_inference(db, image.project_id, image_id, "owlv2", "detect_vocab", ms_vocab)
+        # LVIS boxes merged with the detectors' (same object twice -> the more confident one);
+        # scenery boxes over the whole image are dropped from the LVIS list.
+        detections = merge_detections([detections, vocab], float(image.width * image.height), drop_giant={1})
+        ms_owl += ms_vocab
     return DetectResponse(detections=detections + extra, latency_ms=ms + ms_owl)
+
+
+def vocab_detections(image: Image) -> tuple[list[dict], float]:
+    """Boxes of any of the 1203 LVIS classes (OWLv2, one image pass + one matrix product)."""
+    try:
+        owl, (names, embeds) = registry.get_owl(), registry.get_owl_vocab()
+    except registry.ModelUnavailable:
+        return [], 0.0
+    patches, _, ms = owl.embed(image.id, config.IMAGES_DIR / image.stored_name)
+    out = []
+    for name, xyxy, score in owl_lib.detect_vocab(patches, embeds, names):  # type: ignore[arg-type]
+        x1, y1 = max(float(xyxy[0]), 0.0), max(float(xyxy[1]), 0.0)
+        x2, y2 = min(float(xyxy[2]), float(image.width)), min(float(xyxy[3]), float(image.height))
+        if x2 - x1 >= 1 and y2 - y1 >= 1:
+            out.append({"label": name, "class_id": -1, "score": score, "model": "owlv2_lvis",
+                        "box": {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1}})
+    return out, ms
 
 
 @router.post("/projects/{project_id}/auto-label", response_model=AutoLabelResponse)

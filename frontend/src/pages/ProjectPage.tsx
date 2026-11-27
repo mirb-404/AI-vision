@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api } from '../api/client'
 import { NextImages } from '../components/NextImages'
+import { ResetProject } from '../components/ResetProject'
 import type { AiStatus, AutoLabelResult, ImageInfo, Label, Mode, Project } from '../api/types'
 import { HelpButton, Tour, useTour, type TourStep } from '../components/Tour'
 import { nextColor } from '../lib/geometry'
@@ -191,6 +192,9 @@ export function ProjectPage() {
             are JPEGs with the labels drawn on.
           </p>
         </section>
+
+        <ResetProject projectId={projectId} annotationCount={project?.annotation_count ?? 0}
+                      onDone={() => void refresh()} />
       </div>
 
       <section

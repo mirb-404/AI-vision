@@ -13,6 +13,7 @@ import { ProposalPanel } from '../components/ProposalPanel'
 import { Toolbar, TOOLS } from '../components/Toolbar'
 import { HelpButton, Tour, useTour, type TourStep } from '../components/Tour'
 import { effort } from '../lib/effort'
+import { withAttributes } from '../lib/attributes'
 import { boxIou, boundingBox, nextColor, uid } from '../lib/geometry'
 import { isAiCleared, setAiCleared } from '../lib/aiCleared'
 import { loadSettings, saveSetting } from '../lib/settings'
@@ -46,6 +47,7 @@ export function AnnotatePage() {
   const [autoSuggest, setAutoSuggest] = useState(() => loadSettings(projectId).autoSuggest)
   const [autoAccept, setAutoAccept] = useState(() => loadSettings(projectId).autoAccept)
   const [outlines, setOutlines] = useState(() => loadSettings(projectId).outlines)
+  const [moreKinds, setMoreKinds] = useState(() => loadSettings(projectId).moreKinds)
   const [expert, setExpert] = useState(() => loadSettings(projectId).expert)
   const [suggested, setSuggested] = useState({ added: 0, review: 0, nonce: 0 })
   /** New shape waiting for the user to name it (the 'What is this?' card). */
@@ -201,7 +203,7 @@ export function AnnotatePage() {
   // ---- creating annotations ----------------------------------------------
   /** Add a finished shape and drop detector suggestions it makes redundant. */
   const commitNew = (a: Annotation, tool: string) => {
-    store.add([a])
+    store.add(attrs([a]))
     effort.commit([a], tool)
     if (alikeReady && imageIdRef.current != null && similar?.stage !== 'running') offerSimilar(imageIdRef.current, a)
     const box = boundingBox(a)
@@ -294,7 +296,7 @@ export function AnnotatePage() {
       const a: Annotation = { id: uid(), kind: 'box', geometry: p.box, label_id: labelId, source: 'ai', score: p.score }
       created.push(a)
       store.removeProposal(p.id)
-      effort.log('proposal_accepted', { score: p.score, label: p.label, class_id: p.class_id, auto }, a.id)
+      effort.log('proposal_accepted', { score: p.score, label: p.label, class_id: p.class_id, model: p.model, auto }, a.id)
     }
     if (!created.length) return
     // Exact outlines: SAM traces each accepted box along the object's edge (the image is read once,
@@ -307,9 +309,13 @@ export function AnnotatePage() {
         if (poly && poly.length >= 6) created[i] = { ...created[i], kind: 'polygon', geometry: { points: poly } }
       })
     }
-    store.add(created)
+    store.add(attrs(created))
     effort.commit(created, auto ? 'auto' : 'proposal')
   }
+
+  /** AI pre-fills each new object's attributes (cut off at the edge, partly hidden). */
+  const attrs = (items: Annotation[]): Annotation[] =>
+    image ? withAttributes(items, useAnnotate.getState().annotations, image.width, image.height) : items
 
   const rejectProposals = (items: Proposal[]) => {
     for (const p of items) {
@@ -324,7 +330,8 @@ export function AnnotatePage() {
     const id = image.id
     setDetecting(true)
     try {
-      const res = await api.detect(id, 0.05, labelsRef.current.map((l) => l.name))
+      const res = await api.detect(id, 0.05, labelsRef.current.map((l) => l.name),
+                                   moreKinds && !!aiStatus?.owl_vocab?.available)
       if (imageIdRef.current !== id) return // user moved to another image meanwhile
       const existing = useAnnotate.getState().annotations.map(boundingBox)
       // Once the project has labels, suggest only those: the user said what they are labeling,
@@ -382,6 +389,11 @@ export function AnnotatePage() {
   const changeAutoSuggest = (on: boolean) => {
     saveSetting(projectId, 'autoSuggest', on)
     setAutoSuggest(on)
+  }
+
+  const changeMoreKinds = (on: boolean) => {
+    saveSetting(projectId, 'moreKinds', on)
+    setMoreKinds(on)
   }
 
   const changeOutlines = (on: boolean) => {
@@ -469,7 +481,7 @@ export function AnnotatePage() {
           const created: Annotation[] = regions.map((r) => kind === 'box'
             ? { id: uid(), kind: 'box', geometry: r.box, label_id: labelId, source: 'ai', score: r.score }
             : { id: uid(), kind: 'polygon', geometry: { points: r.polygon }, label_id: labelId, source: 'ai', score: r.score })
-          store.add(created)
+          store.add(attrs(created))
           effort.commit(created, tool)
           regions = created.map((c, k) => ({ ...regions[k], id: c.id }))
         }
@@ -711,6 +723,9 @@ export function AnnotatePage() {
               outlines={outlines}
               outlinesAvailable={samReady}
               onOutlines={changeOutlines}
+              moreKinds={moreKinds}
+              moreKindsAvailable={!!aiStatus?.owl_vocab?.available}
+              onMoreKinds={changeMoreKinds}
               onDetect={runDetector}
               onAccept={acceptProposals}
               onReject={rejectProposals}

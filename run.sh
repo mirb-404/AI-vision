@@ -60,7 +60,8 @@ export_models() {
   # <name>.source records which weights <name>.onnx came from, so new weights re-export it.
   stale() { [ -n "$2" ] && { [ ! -f "$WEIGHTS/$1.onnx" ] || [ "$(cat "$WEIGHTS/$1.source" 2>/dev/null)" != "$2" ]; }; }
   yolo_stale() { stale yolo "$YOLO_WEIGHTS" || stale yolo_coco "$YOLO_EXTRA_WEIGHTS"; }
-  if ! yolo_stale && [ -f "$WEIGHTS/sam_encoder.onnx" ] && [ -f "$WEIGHTS/sam_decoder.onnx" ]      && [ -f "$WEIGHTS/owlv2.onnx" ] && [ -f "$WEIGHTS/owlv2_text.onnx" ]; then
+  if ! yolo_stale && [ -f "$WEIGHTS/sam_encoder.onnx" ] && [ -f "$WEIGHTS/sam_decoder.onnx" ]      && [ -f "$WEIGHTS/owlv2.onnx" ] && [ -f "$WEIGHTS/owlv2_text.onnx" ] \
+     && [ -f "$WEIGHTS/owlv2_lvis.npz" ] && [ -f "$WEIGHTS/class_tree.json" ]; then
     log "Model weights present in models/weights"
     return
   fi
@@ -85,7 +86,13 @@ export_models() {
       bash models/export_sam.sh "${SAM_MODEL:-sam2.1_hiera_tiny}"
     fi
     if [ ! -f "$WEIGHTS/owlv2.onnx" ] || [ ! -f "$WEIGHTS/owlv2_text.onnx" ]; then
-      python models/export_owlv2.py
+      python models/export_owlv2.py           # also writes owlv2_lvis.npz
+    elif [ ! -f "$WEIGHTS/owlv2_lvis.npz" ]; then
+      python models/export_owlv2.py --vocab-only
+    fi
+    if [ ! -f "$WEIGHTS/class_tree.json" ]; then
+      # Small download from Google; exports fall back to COCO supercategories if it fails.
+      python models/export_class_tree.py || echo "warning: class_tree.json not written (Open Images parents off)"
     fi
   )
 }

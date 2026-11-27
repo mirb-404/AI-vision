@@ -123,6 +123,17 @@ def scorecard(project_id: int, download: bool = False, db: Session = Depends(get
     present = {a.id for a in anns}
     committed_label = {e.annotation_id: (e.payload or {}).get("label_id") for e in events
                        if e.kind == "annotation_committed" and e.annotation_id}
+    # Which model produced each AI label: the accepted suggestion's detector, or OWLv2 for
+    # find alike / find by name. Older events without it count as "unknown".
+    made_by: dict[str, str] = {}
+    for e in events:
+        p = e.payload or {}
+        if not e.annotation_id:
+            continue
+        if e.kind == "proposal_accepted":
+            made_by[e.annotation_id] = str(p.get("model") or "unknown")
+        elif e.kind == "annotation_committed" and p.get("tool") in ("similar", "text"):
+            made_by[e.annotation_id] = f"owlv2_{p['tool']}"
     removed = [e for e in events if e.kind == "annotation_deleted" and (e.payload or {}).get("source") in AI_SOURCES
                and e.annotation_id not in present]  # deleted and not brought back by Undo
 
@@ -132,14 +143,18 @@ def scorecard(project_id: int, download: bool = False, db: Session = Depends(get
 
     zero = {"ai_kept": 0, "ai_fixed": 0, "ai_removed": 0, "hand": 0}
     per: dict[str, dict[str, int]] = defaultdict(lambda: dict(zero))
+    by_model: dict[str, dict[str, int]] = defaultdict(lambda: {"ai_kept": 0, "ai_fixed": 0, "ai_removed": 0})
     for a in anns:
         if a.image_id not in scope:
             continue
         key = {"ai": "ai_kept", "ai_edited": "ai_fixed"}.get(a.source, "hand")
         per[labels.get(a.label_id, "?")][key] += 1
+        if key != "hand":
+            by_model[made_by.get(a.id, "unknown")][key] += 1
     for e in {e.annotation_id: e for e in removed}.values():
         if e.image_id in scope:
             per[labels.get(committed_label.get(e.annotation_id), "?")]["ai_removed"] += 1  # type: ignore[arg-type]
+            by_model[made_by.get(e.annotation_id or "", "unknown")]["ai_removed"] += 1
 
     total = dict(zero)
     for c in per.values():
@@ -152,6 +167,9 @@ def scorecard(project_id: int, download: bool = False, db: Session = Depends(get
         "images_scope": "done" if scope and scope <= done else "all with AI labels",
         "total": _rates(total),
         "per_label": {name: _rates(c) for name, c in sorted(per.items())},
+        # Which detector's labels survived review (precision per model; recall needs "hand").
+        "per_model": {m: {**c, "precision": (c["ai_kept"] + c["ai_fixed"]) / t if (t := sum(c.values())) else None}
+                      for m, c in sorted(by_model.items())},
         "effort": {
             "seconds_per_object": {m: effort["per_mode"][m]["seconds_per_object"]["median"] for m in ("manual", "ai")},
             "speed_up_median": effort["speed_up_median"],

@@ -140,8 +140,36 @@ function ScorecardSection({ projectId, data }: { projectId: number; data: Scorec
           ))}
         </tbody>
       </table>
+      {Object.keys(data.per_model ?? {}).length > 0 && (
+        <table className="w-full border-t border-neutral-800 text-sm">
+          <thead className="text-left text-xs uppercase text-neutral-400">
+            <tr className="border-b border-neutral-800">
+              <th className="p-3">Found by model</th><th className="p-3">Kept</th><th className="p-3">Fixed</th>
+              <th className="p-3">Removed</th><th className="p-3">Precision</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(data.per_model).map(([m, c]) => (
+              <tr key={m} className="border-b border-neutral-800/60 last:border-0">
+                <td className="p-3">{MODEL_NAMES[m] ?? m}</td><td className="p-3">{c.ai_kept}</td>
+                <td className="p-3">{c.ai_fixed}</td><td className="p-3">{c.ai_removed}</td>
+                <td className="p-3">{pct(c.precision)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </section>
   )
+}
+
+const MODEL_NAMES: Record<string, string> = {
+  yolo: 'YOLOv8s Open Images (601 classes)',
+  yolo_coco: 'YOLO26n COCO (80 classes)',
+  owlv2: 'OWLv2 (your label names)',
+  owlv2_lvis: 'OWLv2 LVIS (1,203 classes)',
+  owlv2_similar: 'OWLv2 find alike',
+  owlv2_text: 'OWLv2 find by name',
 }
 
 function Kpi({ title, value, hint }: { title: string; value: string; hint: string }) {

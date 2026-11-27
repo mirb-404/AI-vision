@@ -174,8 +174,89 @@ What the user should experience: open an image, and people, faces, helmets and e
   - Not changed: "Auto-label all images" on the project page still saves boxes. Outlines there would mean many SAM encoder runs per project, which is deliberately left out.
 - Tests: backend **25 passed**. New: merge (scenery dropped, "Man" vs "person" de-duplicated, face kept, elephant filled in; one model keeps big boxes) and `MergedDetector` (model tags, unique class ids). Frontend `tsc` and build pass; `run.sh` passes `bash -n`.
 
+### Datalab check of the merged detector: richer labels, and the next question
+
+The merged detector was run on Datalab. The result looks **clearly more sophisticated**: the 601-class model contributes finer names, and the merge keeps the output clean.
+
+That raised the next question: is "more classes" enough, or how deep do professional annotations go? Before adding anything, we checked what industry leaders and the big public datasets actually record per object.
+
+### What industry leaders annotate (research, 27 Nov)
+
+| Layer | Industry practice | Our app before today |
+|---|---|---|
+| Class vocabulary | COCO 80 → Open Images 600 box classes (20k image-level) → LVIS 1,203 classes with a long tail (rare / common / frequent) | 601 + 80 merged, plus OWLv2 for typed names |
+| Class hierarchy | Open Images classes form a tree (e.g. Man under Person) | none |
+| Shape | box → mask (Open Images: 2.8M masks in 350 classes) → keypoints | box + SAM outline |
+| Per-object attributes | Scale: occlusion level per vehicle or pedestrian (categorical / number / angle / text attributes). Labelbox: nested classifications, e.g. a tree marked healthy or unhealthy. V7: attributes, text, instance ID | none |
+| Relationships | Open Images: 3.3M relations ("person rides horse"). Labelbox: named links between two annotations | none |
+| Image-level tags, captions | Open Images image-level labels, localized narratives (voice + mouse trace) | none |
+| Completeness rule | LVIS: every instance of each *checked* class is labelled, not every class on every image | same idea as our "only suggest the project's labels" rule |
+
+For scale, Open Images has per image on average: 6.7 image-level labels, 8.3 boxes, 1.5 masks, 1.7 relations and 34.8 point labels.
+
+Sources: Labelbox ontology docs; Google Research blog on Open Images V7; Scale API docs on annotation attributes; AWS blog on the LAVA driving dataset; LVIS paper (Gupta et al., CVPR 2019); V7 docs on sub-annotations and properties.
+
+### Decision: what to add, and why
+
+**Added: four layers** that move the labels from "a name and a box" towards what professional datasets record. None needs training. Each reuses a model already in the app.
+
+1. **Per-object attributes: occluded, truncated, and a free note.**
+   - This is the most common attribute set in industry (Scale's own example is occlusion level). It is also the VOC standard (`<truncated>`, `<occluded>`).
+   - The AI pre-fills both, as an assistant should:
+     - truncated = the box touches the image edge;
+     - occluded = another object covers 25–90 % of it. Over 90 % means it sits *inside* the other object, like a face in a person: a part, not hidden.
+   - Pre-filled values carry a ✦. Changing one is the user's decision, and it does **not** turn the AI label into "fixed", so the scorecard stays honest.
+2. **Class hierarchy in exports.**
+   - The COCO export's `supercategory` is now real, for example Man → Person. It is not "none" any more.
+   - Open Images parents come from Google's published hierarchy (`models/export_class_tree.py`, run on Datalab). COCO's 12 supercategories are built in.
+3. **More kinds of things (1,203 LVIS classes).**
+   - The idea: OWLv2 already reads each image once. Scoring every patch against all 1,203 LVIS class names is one matrix product, so a large-vocabulary detector comes almost for free.
+   - It is **off by default** (a switch in the AI panel). OWLv2's open-vocabulary precision is lower than a trained detector's, and with no project labels yet, 1,203 classes can add noise.
+   - Its boxes go through the same merge (same object twice → the more confident one; whole-image scenery dropped).
+   - The threshold (0.3) is **untuned**: this is a Datalab test item.
+4. **Which model found each label, recorded on acceptance.**
+   - The scorecard now has a "Found by model" table with kept / fixed / removed and precision per detector: Open Images, COCO, OWLv2 names, OWLv2 LVIS, find alike, find by name.
+   - This gives the report direct evidence for the merge decision.
+
+**Not added, on purpose:**
+- **Relationships, captions / localized narratives, keypoints.** Each is a new annotation type with its own UI. That is large work with little exam value, and the deadline is 30 Nov.
+- **Attributes, the vocabulary and outlines in "Auto-label all images".** That batch path still saves plain boxes; the editor is where review happens.
+
+### Built and checked
+
+- **Database:** an `attributes` JSON column on annotations. `db._migrate()` adds it to existing databases (the one on Datalab). It was checked on an old local database and is safe to run twice.
+- **API:** attributes are validated (unknown keys dropped, wrong types → 422).
+- **Exports:**
+  - COCO carries the attributes and the supercategory;
+  - VOC writes `<truncated>` and `<occluded>`.
+- **Detect:** `vocab: true` merges the LVIS boxes in. `/api/ai/status` reports `owl_vocab`.
+- **Export side:**
+  - `export_owlv2.py` also writes `owlv2_lvis.npz` (`--vocab-only` for Datalab, where OWLv2 already exists);
+  - `export_class_tree.py` writes `class_tree.json`;
+  - `run.sh` runs both when the files are missing.
+- **Tests:** backend **30 passed**. New tests cover:
+  - attributes: round trip, validation, COCO and VOC output, supercategory;
+  - class tree: Open Images before COCO;
+  - LVIS scoring;
+  - detect with the vocabulary;
+  - scorecard per model.
+- **Frontend:** `tsc` and build pass.
+- **Browser (local, no weights):** selected an AI object, switched on "Cut off at edge", reloaded. The ⇥ marker was still there and the label stayed "✦ AI" (not "fixed").
+
+### Start over (reset annotations, keep images)
+
+- **Why:** testing the new detectors over and over meant deleting and re-uploading images each time.
+- **What:** a "Start over" card on the project page, with the button "Reset all annotations". It asks for confirmation first, because the reset cannot be undone. It deletes every annotation of the project and marks all images *new* again; the images stay.
+- **Two optional checkboxes:**
+  - clear the effort stats (events + labeling sessions), so test runs do not mix into the user-study numbers;
+  - remove the labels.
+- It also forgets the "AI labels removed" marks, so the assistant labels every image again.
+- Endpoint: `POST /api/projects/{id}/reset`.
+- Test added (31 passed). Checked in the browser on scratch data: 3 annotations removed, the image is new again, the image is kept.
+
 ## Next
 
-1. Push. On Datalab: `git pull`, start `training/run_all.sh` in the background, then `./run.sh` (exports both detectors).
-3. Re-test the elephant photo with the 80-class, 601-class and merged detectors. Save screenshots for the report.
-4. Click benchmark, user study, then `python3 evaluation/collect_metrics.py` and send `METRICS.md` for analysis.
+1. Push. On Datalab: `git pull`, start `training/run_all.sh` in the background, then `./run.sh`. It exports `owlv2_lvis.npz` and `class_tree.json`; the database gets the new column automatically.
+2. Elephant photo: compare the 80-class, 601-class and merged detectors, then switch on "More kinds of things". Check that the ✦ attributes look right (people at the image border = cut off). Save screenshots.
+3. Review 10–20 images, then send `METRICS.md` (`evaluation/collect_metrics.py`). Its "Found by model" table shows which detector earns its place.
+4. Click benchmark, user study.

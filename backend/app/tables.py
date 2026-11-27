@@ -44,6 +44,10 @@ class Annotation(SQLModel, table=True):
     geometry: dict[str, Any] = Field(sa_column=Column(JSON, nullable=False))
     source: str  # manual | ai | ai_edited
     score: float | None = None
+    # Per-object attributes, as in industry ontologies (Scale, V7, Labelbox):
+    # {"occluded": bool, "truncated": bool, "note": str, "ai_suggested": [keys the AI pre-filled]}
+    attributes: dict[str, Any] = Field(default_factory=dict,
+                                       sa_column=Column(JSON, nullable=False, server_default="{}"))
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 
