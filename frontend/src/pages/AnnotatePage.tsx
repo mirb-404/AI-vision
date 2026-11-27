@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api } from '../api/client'
-import type { AiStatus, Annotation, BoxGeom, Detection, ImageInfo, Label, Mode, PolygonGeom } from '../api/types'
+import type { AiStatus, Annotation, BoxGeom, Detection, ImageInfo, Label, Mode, PolygonGeom, SimilarResult } from '../api/types'
 import { AiSuggestionsToast, AiWorking } from '../components/AiActivity'
 import { AnnotationCanvas } from '../components/AnnotationCanvas'
 import { AnnotationList } from '../components/AnnotationList'
 import { NamePicker } from '../components/NamePicker'
 import { RemoveAiButton } from '../components/RemoveAiButton'
 import { SimilarSearch, type SimilarState } from '../components/SimilarSearch'
+import { TextSearch } from '../components/TextSearch'
 import { ProposalPanel } from '../components/ProposalPanel'
 import { Toolbar, TOOLS } from '../components/Toolbar'
 import { HelpButton, Tour, useTour, type TourStep } from '../components/Tour'
@@ -68,6 +69,8 @@ export function AnnotatePage() {
   const yoloReady = mode === 'ai' && !!aiStatus?.yolo.available
   /** OWLv2 present: "find alike objects" (mark one, the AI marks every object of that kind). */
   const alikeReady = mode === 'ai' && !!aiStatus?.owl?.available
+  /** OWLv2 text tower present: "find by name" (type "car", the AI marks every car). */
+  const textReady = mode === 'ai' && !!aiStatus?.owl_text?.available
 
   // ---- project data ------------------------------------------------------
   const setLabelList = (list: Label[]) => {
@@ -408,9 +411,28 @@ export function AnnotatePage() {
     const example = exampleRef.current
     if (!example) return
     const { imageId: sourceId, annotation: a } = example
-    const name = labelName(a.label_id)
-    const order = [sourceId, ...images.map((i) => i.id).filter((id) => id !== sourceId)]
     const region = a.kind === 'box' ? { box: a.geometry } : { polygon: a.geometry.points }
+    await runSearch(labelName(a.label_id), a.label_id, a.kind, sourceId, 'similar',
+                    (target, save) => api.findSimilar(target, { source_image_id: sourceId, label_id: a.label_id, save, ...region }))
+  }
+
+  /**
+   * "Find by name": type "car", the AI marks every car in all images as boxes (OWLv2 text query).
+   * The label is the typed name (reused when it exists).
+   */
+  const runTextSearch = async (text: string) => {
+    if (similar?.stage === 'running') return
+    const labelId = await labelFor(text)
+    if (labelId == null || imageIdRef.current == null) return
+    const name = labelsRef.current.find((l) => l.id === labelId)?.name ?? text
+    await runSearch(name, labelId, 'box', imageIdRef.current, 'text',
+                    (target, save) => api.textSearch(target, { text, label_id: labelId, save }))
+  }
+
+  /** Run a search on every image (the start image first). Shared by find alike and find by name. */
+  const runSearch = async (name: string, labelId: number, kind: 'box' | 'polygon', startId: number,
+                           tool: 'similar' | 'text', call: (target: number, save: boolean) => Promise<SimilarResult>) => {
+    const order = [startId, ...images.map((i) => i.id).filter((id) => id !== startId)]
     similarStop.current = false
     similarIds.current = []
     let found = 0
@@ -420,24 +442,23 @@ export function AnnotatePage() {
       const target = order[i]
       try {
         const local = target === imageIdRef.current
-        const res = await api.findSimilar(target, { source_image_id: sourceId, label_id: a.label_id, save: !local, ...region })
-        let regions = res.regions
+        let regions = (await call(target, !local)).regions
         if (local && imageIdRef.current !== target) {
           // The user moved on while this image was searched: let the server save the result.
-          regions = (await api.findSimilar(target, { source_image_id: sourceId, label_id: a.label_id, save: true, ...region })).regions
+          regions = (await call(target, true)).regions
         } else if (local && regions.length) {
-          const created: Annotation[] = regions.map((r) => a.kind === 'box'
-            ? { id: uid(), kind: 'box', geometry: r.box, label_id: a.label_id, source: 'ai', score: r.score }
-            : { id: uid(), kind: 'polygon', geometry: { points: r.polygon }, label_id: a.label_id, source: 'ai', score: r.score })
+          const created: Annotation[] = regions.map((r) => kind === 'box'
+            ? { id: uid(), kind: 'box', geometry: r.box, label_id: labelId, source: 'ai', score: r.score }
+            : { id: uid(), kind: 'polygon', geometry: { points: r.polygon }, label_id: labelId, source: 'ai', score: r.score })
           store.add(created)
-          effort.commit(created, 'similar')
+          effort.commit(created, tool)
           regions = created.map((c, k) => ({ ...regions[k], id: c.id }))
         }
         similarIds.current.push(...regions.map((r) => r.id!).filter(Boolean))
         found += regions.length
         if (regions.length) touched++
       } catch (e) {
-        setError(`Find similar: ${(e as Error).message}`)
+        setError(`${tool === 'text' ? 'Find by name' : 'Find alike'}: ${(e as Error).message}`)
         break
       }
       setSimilar({ stage: 'running', name, done: i + 1, total: order.length, found })
@@ -631,7 +652,7 @@ export function AnnotatePage() {
           <RemoveAiButton key={image?.id} count={aiLabelCount} onRemove={removeAiLabels} onUndo={undoRemoveAi} />
           <ToolToast tool={tool} />
           <ToolHint tool={tool} smartBusy={smartBusy} embedState={embedState}
-                    hasPreview={!!store.smartPreview} onAccept={acceptSmart} onClear={store.clearSmart} />
+                    hasPreview={!!store.smartPreview} score={store.smartPreview?.score} onAccept={acceptSmart} onClear={store.clearSmart} />
         </div>
 
         <aside className="max-h-[40dvh] w-full shrink-0 space-y-4 overflow-y-auto border-t border-neutral-800 p-3 md:max-h-none md:w-80 md:border-l md:border-t-0">
@@ -652,6 +673,10 @@ export function AnnotatePage() {
               ))}
             </div>
           </section>}
+
+          {textReady && (
+            <TextSearch busy={similar?.stage === 'running'} onSearch={(t) => void runTextSearch(t)} />
+          )}
 
           {mode === 'ai' ? (
             <div data-tour="autolabel">
@@ -737,6 +762,7 @@ const ANNOTATE_TOUR: TourStep[] = [
   { target: 'expert', title: 'Expert tools', body: 'Need more control? Turn this on for extra drawing tools, label setup, the confidence slider and keyboard shortcuts.' },
   { target: 'mode', title: 'AI-assisted vs manual', body: 'Manual turns the AI tools off. Time and clicks are logged per mode to measure the effort AI saves.' },
   { target: 'remove-ai', title: 'Remove AI labels', body: 'Did the AI label things you do not want? This removes everything it added to this image in one go. Labels you made or fixed stay, and Undo brings them back.' },
+  { target: 'text-search', title: 'Find by name', body: 'Type what you are looking for, like “car” or “helmet”. The AI marks every one in all images, also things the auto-label model does not know.' },
   { target: 'save', title: 'Autosave', body: 'Every change saves by itself. There is no save button to forget.' },
   { target: 'download', title: 'Download annotated image', body: 'Saves this image as a JPEG with all its annotations drawn on.' },
   { target: 'done', title: 'Done', body: 'When everything is marked, press this. Your work is saved and the next unfinished image opens.' },
@@ -744,11 +770,13 @@ const ANNOTATE_TOUR: TourStep[] = [
   { target: 'help', title: 'Replay this tour', body: 'Tap ? (or press ?) any time to see this tutorial again.' },
 ]
 
-function ToolHint({ tool, smartBusy, embedState, hasPreview, onAccept, onClear }: {
+function ToolHint({ tool, smartBusy, embedState, hasPreview, score, onAccept, onClear }: {
   tool: Tool
   smartBusy: boolean
   embedState: string
   hasPreview: boolean
+  /** SAM's own estimate of the outline's IoU (0-1). */
+  score?: number
   onAccept: () => void
   onClear: () => void
 }) {
@@ -759,6 +787,7 @@ function ToolHint({ tool, smartBusy, embedState, hasPreview, onAccept, onClear }
         : smartBusy ? 'Outlining…'
         : hasPreview ? 'Outline wrong? Tap the part that is missing.'
         : 'Tap any object. AI outlines it for you.'}
+      {hasPreview && score != null && <ConfidenceChip score={score} />}
       {hasPreview && (
         <>
           <button className="rounded bg-cyan-600 px-2 py-0.5 text-white hover:bg-cyan-500" onClick={onAccept}>✓ Looks right</button>
@@ -766,5 +795,19 @@ function ToolHint({ tool, smartBusy, embedState, hasPreview, onAccept, onClear }
         </>
       )}
     </div>
+  )
+}
+
+/** How sure SAM is about its outline (its predicted IoU), in plain words. */
+function ConfidenceChip({ score }: { score: number }) {
+  const pctSure = Math.round(Math.min(Math.max(score, 0), 1) * 100)
+  const [style, word] = score >= 0.85 ? ['bg-emerald-500/15 text-emerald-300', 'sure']
+    : score >= 0.6 ? ['bg-amber-500/15 text-amber-300', 'check the edges']
+    : ['bg-red-500/15 text-red-300', 'unsure, tap the missing part']
+  return (
+    <span className={`rounded px-1.5 py-0.5 font-medium ${style}`}
+          title="The AI's own estimate of how well the outline fits (predicted IoU)">
+      ✦ {pctSure}% {word}
+    </span>
   )
 }

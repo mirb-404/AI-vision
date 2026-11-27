@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { api } from '../api/client'
-import type { Mode, Stats, Summary } from '../api/types'
+import type { Mode, Scorecard, ScoreCounts, Stats, Summary } from '../api/types'
 import { btnSecondary, card, fmt } from '../lib/ui'
 
 const pct = (v: number | null) => (v == null ? '–' : `${Math.round(v * 100)}%`)
@@ -10,10 +10,12 @@ const range = (s: Summary, digits = 1) => (s.n ? `${fmt(s.q1, digits)}–${fmt(s
 export function StatsPage() {
   const projectId = Number(useParams().projectId)
   const [stats, setStats] = useState<Stats | null>(null)
+  const [card_, setCard] = useState<Scorecard | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.stats(projectId).then(setStats).catch((e) => setError(e.message))
+    api.scorecard(projectId).then(setCard).catch(() => setCard(null))
   }, [projectId])
 
   if (error) return <p className="text-red-400">{error}</p>
@@ -73,6 +75,8 @@ export function StatsPage() {
         </table>
       </section>
 
+      {card_ && <ScorecardSection projectId={projectId} data={card_} />}
+
       <section className={`${card} overflow-x-auto`}>
         <h2 className="p-3 pb-0 font-medium">Model latency (server-side, ms)</h2>
         <table className="w-full text-sm">
@@ -96,6 +100,47 @@ export function StatsPage() {
         </table>
       </section>
     </div>
+  )
+}
+
+/** AI labels judged against the user's final labels: kept, fixed, removed, and what the user drew. */
+function ScorecardSection({ projectId, data }: { projectId: number; data: Scorecard }) {
+  const rows: [string, ScoreCounts][] = [['All labels', data.total], ...Object.entries(data.per_label)]
+  return (
+    <section className={`${card} overflow-x-auto`}>
+      <div className="flex flex-wrap items-start justify-between gap-2 p-3 pb-0">
+        <div>
+          <h2 className="font-medium"><span className="ai-text">✦</span> AI scorecard</h2>
+          <p className="max-w-2xl text-xs text-neutral-500">
+            The AI&apos;s labels compared with your final labels on {data.images} image{data.images === 1 ? '' : 's'} ({data.images_scope}).
+            Precision: AI labels you kept. Recall: objects the AI found. Exactly right: kept with no change.
+          </p>
+        </div>
+        <a className={btnSecondary} href={api.scorecardUrl(projectId)}>Download scorecard (JSON)</a>
+      </div>
+      <table className="w-full text-sm">
+        <thead className="text-left text-xs uppercase text-neutral-400">
+          <tr className="border-b border-neutral-800">
+            <th className="p-3">Label</th><th className="p-3">Kept</th><th className="p-3">Fixed</th>
+            <th className="p-3">Removed</th><th className="p-3">Drawn by you</th>
+            <th className="p-3">Precision</th><th className="p-3">Recall</th><th className="p-3">Exactly right</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.images === 0 && (
+            <tr><td className="p-3 text-neutral-500" colSpan={8}>No AI labels reviewed yet.</td></tr>
+          )}
+          {data.images > 0 && rows.map(([name, c], i) => (
+            <tr key={name} className={`border-b border-neutral-800/60 last:border-0 ${i === 0 ? 'font-medium' : ''}`}>
+              <td className="p-3">{name}</td><td className="p-3">{c.ai_kept}</td><td className="p-3">{c.ai_fixed}</td>
+              <td className="p-3">{c.ai_removed}</td><td className="p-3">{c.hand}</td>
+              <td className="p-3">{pct(c.precision)}</td><td className="p-3">{pct(c.recall)}</td>
+              <td className="p-3">{pct(c.exact_share)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   )
 }
 

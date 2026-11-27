@@ -1,6 +1,6 @@
 import type {
   AiStatus, Annotation, AutoLabelResult, BoxGeom, DetectResult, EffortEvent, ImageInfo, ImageStatus, Label,
-  LabelingSession, Mode, PolygonGeom, Project, PromptPoint, SegmentResult, SimilarResult, Stats, UploadResult,
+  LabelingSession, Mode, NextImagesResult, PolygonGeom, Scorecard, Project, PromptPoint, SegmentResult, SimilarResult, Stats, UploadResult,
 } from './types'
 
 // Relative on purpose: resolves against the page URL, so a proxy prefix
@@ -71,10 +71,19 @@ export const api = {
   findSimilar: (imageId: number, body: { source_image_id: number; label_id: number; save: boolean;
                                          box?: BoxGeom; polygon?: PolygonGeom['points']; strictness?: number }) =>
     request<SimilarResult>(`/images/${imageId}/similar`, json('POST', body)),
+  /** Boxes in imageId matching a typed name ("car"), OWLv2 text query. */
+  textSearch: (imageId: number, body: { text: string; label_id: number; save: boolean; strictness?: number }) =>
+    request<SimilarResult>(`/images/${imageId}/text-search`, json('POST', body)),
   undoSimilar: (ids: string[]) => request<{ deleted: number }>('/similar/undo', json('POST', { ids })),
   detect: (imageId: number, conf = 0.1) => request<DetectResult>(`/images/${imageId}/detect`, json('POST', { conf })),
   autoLabelProject: (projectId: number, conf: number, skipLabeled: boolean) =>
     request<AutoLabelResult>(`/projects/${projectId}/auto-label`, json('POST', { conf, skip_labeled: skipLabeled })),
+
+  /** Unlabeled images, most uncertain for the detector first ("label these next"). */
+  nextImages: (projectId: number, limit = 5) =>
+    request<NextImagesResult>(`/projects/${projectId}/next-images?limit=${limit}`, { method: 'POST' }),
+  scorecard: (projectId: number) => request<Scorecard>(`/projects/${projectId}/scorecard`),
+  scorecardUrl: (projectId: number) => `${BASE}/projects/${projectId}/scorecard?download=true`,
 
   createSession: (projectId: number, mode: Mode, participant: string) =>
     request<LabelingSession>(`/projects/${projectId}/sessions`, json('POST', { mode, participant })),
@@ -82,6 +91,6 @@ export const api = {
     request<void>(`/projects/${projectId}/events`, { ...json('POST', { events }), keepalive }),
   stats: (projectId: number) => request<Stats>(`/projects/${projectId}/stats`),
   eventsCsvUrl: (projectId: number) => `${BASE}/projects/${projectId}/events.csv`,
-  exportUrl: (projectId: number, format: 'coco' | 'yolo' | 'images', onlyDone: boolean) =>
+  exportUrl: (projectId: number, format: 'coco' | 'yolo' | 'voc' | 'images', onlyDone: boolean) =>
     `${BASE}/projects/${projectId}/export?format=${format}&only_done=${onlyDone}`,
 }

@@ -1,4 +1,4 @@
-"""AI assistance endpoints: SAM click/box-to-polygon and YOLO pre-labels."""
+"""AI assistance endpoints: SAM click/box-to-polygon, YOLO pre-labels, OWLv2 find alike / find by name."""
 
 import uuid
 
@@ -12,8 +12,8 @@ from ..inference import owl as owl_lib
 from ..inference import registry
 from ..inference.sam import load_rgb
 from ..schemas import (AiStatus, AutoLabelRequest, AutoLabelResponse, DetectRequest, DetectResponse,
-                       EmbedResponse, SegmentRequest, SegmentResponse, SimilarRegion, SimilarRequest,
-                       SimilarResponse, UndoAiRequest, UndoAiResponse)
+                       EmbedResponse, NextImage, NextImagesResponse, SegmentRequest, SegmentResponse, SimilarRegion, SimilarRequest,
+                       SimilarResponse, TextSearchRequest, UndoAiRequest, UndoAiResponse)
 from ..tables import Annotation, Event, Image, Label, utcnow
 from .common import annotation_counts, image_or_404, project_or_404
 
@@ -132,6 +132,42 @@ def auto_label_project(project_id: int, body: AutoLabelRequest, db: Session = De
                              labels_created=created_labels, latency_ms=round(total_ms, 1))
 
 
+def uncertainty(scores: list[float]) -> float:
+    """Image uncertainty for "label these next" (uncertainty sampling, active learning).
+
+    Mean of 1 - |2s - 1| over the detector's boxes: 0 when every box is sure (s near 0 or 1), 1 when
+    every box is a coin flip (s = 0.5). An image with no box at all scores 1: the model sees nothing
+    it knows, so a human look teaches the most (new classes, or the image really is empty).
+    """
+    if not scores:
+        return 1.0
+    return float(np.mean([1 - abs(2 * s - 1) for s in scores]))
+
+
+@router.post("/projects/{project_id}/next-images", response_model=NextImagesResponse)
+def next_images(project_id: int, limit: int = 5, db: Session = Depends(get_session)):
+    """Unlabeled images ranked by how unsure the detector is about them, most unsure first.
+
+    Labeling these first gives the most new information per image when the labels are later used
+    to fine-tune the model (see training/data_engine.py). Only images with status "new" are scored.
+    """
+    project_or_404(db, project_id)
+    yolo = _model(registry.get_yolo)
+    images = db.exec(select(Image).where(Image.project_id == project_id, Image.status == "new")).all()
+    ranked, total_ms = [], 0.0
+    for image in images:
+        detections, ms = yolo.detect(load_rgb(config.IMAGES_DIR / image.stored_name), 0.1, 0.45)
+        total_ms += ms
+        scores = [float(d["score"]) for d in detections]
+        ranked.append(NextImage(image_id=image.id, uncertainty=round(uncertainty(scores), 4),  # type: ignore[arg-type]
+                                detections=len(scores), unsure=sum(0.2 <= s <= 0.6 for s in scores)))
+    ranked.sort(key=lambda r: -r.uncertainty)
+    db.add(Event(project_id=project_id, kind="inference",
+                 payload={"model": "yolo", "stage": "next_images", "ms": round(total_ms, 2), "images": len(ranked)}))
+    db.commit()
+    return NextImagesResponse(images=ranked[:max(limit, 1)], ranked=len(ranked), latency_ms=round(total_ms, 1))
+
+
 @router.post("/images/{image_id}/similar", response_model=SimilarResponse)
 def find_similar(image_id: int, body: SimilarRequest, db: Session = Depends(get_session)):
     """Find every object of the same kind as the example the user marked (one-shot, no training).
@@ -171,8 +207,43 @@ def find_similar(image_id: int, body: SimilarRequest, db: Session = Depends(get_
     patches, _, ms_tgt = owl.embed(target.id, config.IMAGES_DIR / target.stored_name)
     found = owl_lib.detect_like(patches, query, threshold)
 
-    # Skip the example and objects that already carry this label.
-    taken = [example] if target.id == source.id else []
+    regions = _store_found(db, target, label, kind, found, [example] if target.id == source.id else [], body.save)
+
+    ms = ms_src + ms_tgt
+    _finish_search(db, target, "similar", ms, regions, body.save)
+    return SimilarResponse(regions=regions, latency_ms=round(ms, 1))
+
+
+@router.post("/images/{image_id}/text-search", response_model=SimilarResponse)
+def text_search(image_id: int, body: TextSearchRequest, db: Session = Depends(get_session)):
+    """Find every object matching a typed name ("car", "helmet") in this image, as boxes.
+
+    OWLv2 open-vocabulary detection with a text query: works for names outside the YOLO classes.
+    Objects already annotated with the label are skipped, so running it again adds no duplicates.
+    """
+    target = image_or_404(db, image_id)
+    label = db.get(Label, body.label_id)
+    if label is None or label.project_id != target.project_id:
+        raise HTTPException(404, "label not found in this project")
+    owl = _model(registry.get_owl)
+    text = _model(registry.get_owl_text)
+    query, ms_text = text.encode(body.text)
+    patches, _, ms_img = owl.embed(target.id, config.IMAGES_DIR / target.stored_name)
+    found = owl_lib.detect_like(patches, query, owl_lib.text_threshold(body.strictness))
+    regions = _store_found(db, target, label, "box", found, [], body.save)
+    ms = ms_text + ms_img
+    _finish_search(db, target, "text", ms, regions, body.save)
+    return SimilarResponse(regions=regions, latency_ms=round(ms, 1))
+
+
+def _store_found(db: Session, target: Image, label: Label, kind: str, found: list[tuple[np.ndarray, float]],
+                 exclude: list[np.ndarray], save: bool) -> list[SimilarRegion]:
+    """Turn OWLv2 boxes into regions (and AI annotations when save=True).
+
+    Skips boxes overlapping `exclude` (e.g. the example) or an object that already has this label
+    (IoU >= 0.5). For kind "polygon", SAM outlines each box when it is available.
+    """
+    taken = list(exclude)
     same_label = db.exec(select(Annotation).where(Annotation.image_id == target.id,
                                                   Annotation.label_id == label.id)).all()
     for a in same_label:
@@ -208,7 +279,7 @@ def find_similar(image_id: int, body: SimilarRequest, db: Session = Depends(get_
             if len(outline) >= 6:
                 polygon = outline
         region_out = SimilarRegion(polygon=polygon, box=box, score=score)
-        if body.save:
+        if save:
             region_out.id = uuid.uuid4().hex
             geometry = box if kind == "box" else {"points": polygon}
             db.add(Annotation(id=region_out.id, image_id=target.id, label_id=label.id,  # type: ignore[arg-type]
@@ -216,15 +287,17 @@ def find_similar(image_id: int, body: SimilarRequest, db: Session = Depends(get_
                               source="ai", score=score, created_at=now, updated_at=now))
         regions.append(region_out)
         taken_arr = np.concatenate([taken_arr, box_xyxy[None]])
+    return regions
 
-    ms = ms_src + ms_tgt
+
+def _finish_search(db: Session, target: Image, stage: str, ms: float, regions: list[SimilarRegion], save: bool) -> None:
+    """Log the OWLv2 run and mark the image as started when results were saved."""
     db.add(Event(project_id=target.project_id, image_id=target.id, kind="inference",
-                 payload={"model": "owlv2", "stage": "similar", "ms": round(ms, 2), "regions": len(regions)}))
-    if body.save and regions and target.status == "new":
+                 payload={"model": "owlv2", "stage": stage, "ms": round(ms, 2), "regions": len(regions)}))
+    if save and regions and target.status == "new":
         target.status = "in_progress"
         db.add(target)
     db.commit()
-    return SimilarResponse(regions=regions, latency_ms=round(ms, 1))
 
 
 @router.post("/similar/undo", response_model=UndoAiResponse)

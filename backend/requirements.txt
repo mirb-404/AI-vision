@@ -7,3 +7,5 @@ python-multipart>=0.0.18
 numpy>=2.0,<3
 pillow>=11,<13
 opencv-python-headless>=4.10,<5
+# CLIP tokenizer for OWLv2 "find by name" (Hugging Face tokenizers, Apache-2.0)
+tokenizers>=0.19,<1

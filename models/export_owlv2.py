@@ -9,7 +9,12 @@ Writes models/weights/owlv2.onnx with one input (pixel_values, 1x3x960x960) and 
     pred_boxes   (1, N, 4)  cx, cy, w, h normalised to the padded square input
     objectness   (1, N)     objectness logits
 Query selection and scoring run in numpy (backend/app/inference/owl.py), so the graph needs no
-query input. The script checks the ONNX outputs against PyTorch before finishing.
+query input.
+
+It also writes the text tower for "find by name" (type "car", the AI marks every car):
+    owlv2_text.onnx          input_ids, attention_mask (1x16 int64) -> text_embeds (1, D), not normalised
+    owlv2_tokenizer.json     CLIP tokenizer (Hugging Face `tokenizers` format)
+The script checks every ONNX output against PyTorch before finishing.
 
 Model: google/owlv2-base-patch16-ensemble, Apache-2.0 (Minderer et al., NeurIPS 2023).
 """
@@ -20,11 +25,11 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from transformers import Owlv2ForObjectDetection
+from transformers import AutoTokenizer, Owlv2ForObjectDetection
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / "backend"))
-from app.inference.owl import INPUT_SIZE, preprocess  # noqa: E402  (same preprocessing as serving)
+from app.inference.owl import INPUT_SIZE, TEXT_LEN, TEXT_PROMPT, preprocess  # noqa: E402  (same as serving)
 
 OUTPUTS = ["class_embeds", "logit_shift", "logit_scale", "pred_boxes", "objectness"]
 
@@ -51,10 +56,58 @@ class PatchOutputs(torch.nn.Module):
         return embeds, shift, scale, boxes, objectness
 
 
+class TextEmbeds(torch.nn.Module):
+    """OWLv2 text tower: token ids -> projected text embedding (the query for a class name)."""
+
+    def __init__(self, model: Owlv2ForObjectDetection):
+        super().__init__()
+        self.model = model
+
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor):
+        owl = self.model.owlv2
+        pooled = owl.text_model(input_ids=input_ids, attention_mask=attention_mask)[1]  # EOS token state
+        return owl.text_projection(pooled)
+
+
+def export_text(model: Owlv2ForObjectDetection, name: str, out: Path, tok_out: Path) -> None:
+    tokenizer = AutoTokenizer.from_pretrained(name, use_fast=True)
+    tokenizer.backend_tokenizer.save(str(tok_out))
+    print(f"wrote {tok_out}")
+    enc = tokenizer([TEXT_PROMPT.format("cricket ball")], padding="max_length", max_length=TEXT_LEN,
+                    truncation=True, return_tensors="pt")
+    ids, mask = enc["input_ids"].long(), enc["attention_mask"].long()
+
+    # The backend tokenises with `tokenizers` directly: check it gives the same ids as transformers.
+    from tokenizers import Tokenizer
+    fast = Tokenizer.from_file(str(tok_out))
+    fast.enable_truncation(TEXT_LEN)
+    fast.enable_padding(length=TEXT_LEN, pad_id=0, pad_token="!")
+    got_ids = fast.encode(TEXT_PROMPT.format("cricket ball")).ids
+    if got_ids != ids[0].tolist():
+        raise SystemExit(f"tokenizer mismatch: {got_ids} vs {ids[0].tolist()}")
+
+    wrapper = TextEmbeds(model).eval()
+    with torch.no_grad():
+        reference = wrapper(ids, mask).numpy()
+        torch.onnx.export(wrapper, (ids, mask), str(out), input_names=["input_ids", "attention_mask"],
+                          output_names=["text_embeds"], opset_version=17, do_constant_folding=True, dynamo=False)
+    print(f"wrote {out} ({out.stat().st_size / 1e6:.0f} MB)")
+
+    import onnxruntime as ort
+    session = ort.InferenceSession(str(out), providers=["CPUExecutionProvider"])
+    got = session.run(["text_embeds"], {"input_ids": ids.numpy(), "attention_mask": mask.numpy()})[0]
+    diff = float(np.abs(reference - got).max())
+    print(f"  text_embeds   {tuple(got.shape)}  max |onnx - torch| = {diff:.2e}")
+    if diff > 1e-2:
+        raise SystemExit(f"ONNX text output differs from PyTorch by {diff}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", default="google/owlv2-base-patch16-ensemble")
     parser.add_argument("--out", default=str(ROOT / "weights" / "owlv2.onnx"))
+    parser.add_argument("--text-out", default=str(ROOT / "weights" / "owlv2_text.onnx"))
+    parser.add_argument("--tokenizer-out", default=str(ROOT / "weights" / "owlv2_tokenizer.json"))
     parser.add_argument("--check-image", default=None, help="Image for the ONNX-vs-PyTorch check (default: random)")
     args = parser.parse_args()
 
@@ -84,6 +137,7 @@ def main() -> None:
         print(f"  {name:13s} {tuple(b.shape)}  max |onnx - torch| = {diff:.2e}")
         if diff > 1e-2:
             raise SystemExit(f"ONNX output {name} differs from PyTorch by {diff}")
+    export_text(model, args.model, Path(args.text_out), Path(args.tokenizer_out))
     print("ONNX matches PyTorch")
 
 

@@ -1,6 +1,6 @@
 # AI Annotator
 
-A web app for labeling images with AI assistance. Upload images, then draw boxes and polygons. **SAM 2.1** turns a click or a box into a mask, and **YOLO** pre-labels boxes that you accept or reject. Labels export as **COCO JSON** or **YOLO**. Every action is logged, so the app can measure how much time the AI saves compared with manual labeling.
+A web app for labeling images with AI assistance. Upload images, then draw boxes and polygons. **SAM 2.1** turns a click or a box into a mask, and **YOLO** pre-labels boxes that you accept or reject. **OWLv2** finds every object like one you marked, or every object matching a typed name. Labels export as **COCO JSON**, **YOLO** or **Pascal VOC**. Every action is logged, so the app can measure how much time the AI saves compared with manual labeling.
 
 ## Repository layout
 
@@ -8,6 +8,9 @@ A web app for labeling images with AI assistance. Upload images, then draw boxes
 frontend/   React + TypeScript + Tailwind (Vite), canvas via react-konva
 backend/    FastAPI + SQLite REST API; ONNX inference code in backend/app/inference/
 models/     export scripts + weights/ folder (weights are git-ignored, produced on Linux)
+training/   YOLO fine-tuning experiments + data-engine round report
+evaluation/ Magic select (SAM) click benchmark: NoC@85/90, mIoU per click
+samples/    sample images for trying the app
 diary/      daily progress reports
 plan.md     project plan
 ```
@@ -71,18 +74,21 @@ Data (SQLite DB and uploaded images) goes to `./data/`. Change the location with
    - **Auto-label**: runs YOLO. Use the confidence slider, then accept (A) or reject (Del) each proposal, or all at once.
    - The ✦ button on a box refines it into a SAM mask.
    - **⤓ Image** downloads the current image as a JPEG with its annotations drawn on.
+   - **⧉ Find alike**: after marking one object, the AI offers to mark every object of that kind in all images.
+   - **✦ Find by name**: type a name ("car", "helmet"); the AI marks every one in all images, also classes YOLO does not know.
+   - **✦ Remove AI labels** (top right of the image) removes everything the AI added to this image, with Undo.
 5. Click **Mark done**, which moves you to the next image. Annotations autosave.
 6. Optional: **Auto-label all images** on the project page runs YOLO over every image and saves the boxes as AI annotations. By default it skips images that already have annotations.
-7. Export from the project page: COCO or YOLO zips (images plus labels), or **Annotated images** (JPEGs with the labels drawn on).
-8. **Effort stats** shows seconds and clicks per object for each mode, the speed-up, proposal accept and edit rates, and model latency. You can also download the raw event CSV.
+7. Export from the project page: COCO, YOLO or Pascal VOC zips (images plus labels), or **Annotated images** (JPEGs with the labels drawn on). **Label these next** asks the AI which new images it is least sure about (label those first before fine-tuning).
+8. **Effort stats** shows seconds and clicks per object for each mode, the speed-up, proposal accept and edit rates, and model latency. The **AI scorecard** compares the AI's labels with your final labels (kept, fixed, removed, drawn by you; precision and recall). You can download the raw event CSV and the scorecard JSON.
 
 The **?** button on the project and editor pages starts a guided tour that spotlights each control. The tour opens by itself on the first visit; press `?` in the editor to replay it.
 
 ## API
 
 FastAPI docs: `http://localhost:8000/docs` (dev) or `http://localhost:8080/api/...` (docker).
-Main routes: `/api/projects`, `/api/projects/{id}/images`, `/api/images/{id}/annotations`, `/api/images/{id}/segment`, `/api/images/{id}/detect`, `/api/projects/{id}/export?format=coco|yolo|images`, `/api/projects/{id}/auto-label`, `/api/images/{id}/rendered`, `/api/projects/{id}/stats`, `/api/projects/{id}/events.csv`.
+Main routes: `/api/projects`, `/api/projects/{id}/images`, `/api/images/{id}/annotations`, `/api/images/{id}/segment`, `/api/images/{id}/detect`, `/api/projects/{id}/export?format=coco|yolo|voc|images`, `/api/images/{id}/similar`, `/api/images/{id}/text-search`, `/api/projects/{id}/next-images`, `/api/projects/{id}/scorecard`, `/api/projects/{id}/auto-label`, `/api/images/{id}/rendered`, `/api/projects/{id}/stats`, `/api/projects/{id}/events.csv`.
 
 ## Models and citations
 
-See [models/README.md](models/README.md). In short: SAM 2.1 (Apache-2.0), YOLO by Ultralytics (AGPL-3.0), ONNX Runtime (MIT). The UI, data model, export and effort logging are written from scratch. No existing annotation tool is forked or wrapped.
+See [models/README.md](models/README.md). In short: SAM 2.1 (Apache-2.0), YOLO by Ultralytics (AGPL-3.0), OWLv2 (Apache-2.0), ONNX Runtime (MIT), Hugging Face tokenizers (Apache-2.0). The UI, data model, export and effort logging are written from scratch. No existing annotation tool is forked or wrapped.

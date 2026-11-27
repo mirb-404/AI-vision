@@ -22,6 +22,9 @@ SAM_VARIANT = os.getenv("SAM_VARIANT", "sam2")
 YOLO_MODEL = MODELS_DIR / os.getenv("YOLO_MODEL", "yolo.onnx")
 # OWLv2 image-guided detection for "find alike objects" (models/export_owlv2.py).
 OWL_MODEL = MODELS_DIR / os.getenv("OWL_MODEL", "owlv2.onnx")
+# OWLv2 text tower + CLIP tokenizer for "find by name" (type "car", the AI marks every car).
+OWL_TEXT_MODEL = MODELS_DIR / os.getenv("OWL_TEXT_MODEL", "owlv2_text.onnx")
+OWL_TOKENIZER = MODELS_DIR / os.getenv("OWL_TOKENIZER", "owlv2_tokenizer.json")
 
 # Comma-separated ONNX Runtime providers, tried in order.
 ORT_PROVIDERS = [p.strip() for p in os.getenv("ORT_PROVIDERS", "CPUExecutionProvider").split(",") if p.strip()]

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api } from '../api/client'
+import { NextImages } from '../components/NextImages'
 import type { AiStatus, AutoLabelResult, ImageInfo, Label, Mode, Project } from '../api/types'
 import { HelpButton, Tour, useTour, type TourStep } from '../components/Tour'
 import { nextColor } from '../lib/geometry'
@@ -139,6 +140,8 @@ export function ProjectPage() {
           <div className="space-y-1 text-xs">
             <ModelBadge name="SAM (click → mask)" status={aiStatus?.sam} />
             <ModelBadge name="YOLO (auto boxes)" status={aiStatus?.yolo} />
+            <ModelBadge name="OWLv2 (find alike)" status={aiStatus?.owl} />
+            <ModelBadge name="OWLv2 (find by name)" status={aiStatus?.owl_text} />
           </div>
         </section>
 
@@ -180,10 +183,11 @@ export function ProjectPage() {
           <div className="flex flex-wrap gap-2">
             <a className={btnSecondary} href={api.exportUrl(projectId, 'coco', onlyDone)}>COCO JSON (.zip)</a>
             <a className={btnSecondary} href={api.exportUrl(projectId, 'yolo', onlyDone)}>YOLO (.zip)</a>
+            <a className={btnSecondary} href={api.exportUrl(projectId, 'voc', onlyDone)}>Pascal VOC (.zip)</a>
             <a className={btnSecondary} href={api.exportUrl(projectId, 'images', onlyDone)}>Annotated images (.zip)</a>
           </div>
           <p className="text-xs text-neutral-500">
-            COCO and YOLO include the images plus labels (COCO keeps polygons; YOLO uses boxes). Annotated images
+            COCO, YOLO and VOC include the images plus labels (COCO keeps polygons; YOLO and VOC use boxes). Annotated images
             are JPEGs with the labels drawn on.
           </p>
         </section>
@@ -203,6 +207,8 @@ export function ProjectPage() {
         <input ref={fileInput} type="file" accept="image/*" multiple hidden
                onChange={(e) => { upload(Array.from(e.target.files ?? [])); e.target.value = '' }} />
       </section>
+
+      {images.length > 0 && <NextImages projectId={projectId} available={!!aiStatus?.yolo.available} />}
 
       {images.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">

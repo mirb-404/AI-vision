@@ -3,6 +3,7 @@
 import json
 import re
 import zipfile
+from xml.sax.saxutils import escape
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -110,6 +111,44 @@ def write_yolo_zip(zf: zipfile.ZipFile, images: list[Image], labels: list[Label]
     names = "\n".join(f"  {i}: {json.dumps(l.name)}" for i, l in enumerate(labels))
     zf.writestr("data.yaml", f"path: .\ntrain: images\nval: images\nnames:\n{names}\n")
     zf.writestr("classes.txt", "\n".join(l.name for l in labels) + "\n")
+
+
+def voc_xml(image: Image, name: str, labels_by_id: dict[int, Label], annotations: list[Annotation]) -> str:
+    """Pascal VOC annotation XML for one image. Outlines are stored as their bounding box (VOC is boxes)."""
+    objects = []
+    for a in annotations:
+        box = _clip_box(a, image)
+        if box is None:
+            continue
+        x, y, w, h = box
+        # VOC pixel coordinates are 1-based and inclusive.
+        x1, y1 = int(round(x)) + 1, int(round(y)) + 1
+        x2, y2 = max(int(round(x + w)), x1), max(int(round(y + h)), y1)
+        objects.append(
+            "  <object>\n"
+            f"    <name>{escape(labels_by_id[a.label_id].name)}</name>\n"
+            "    <pose>Unspecified</pose>\n    <truncated>0</truncated>\n    <difficult>0</difficult>\n"
+            f"    <bndbox><xmin>{x1}</xmin><ymin>{y1}</ymin><xmax>{x2}</xmax><ymax>{y2}</ymax></bndbox>\n"
+            "  </object>\n")
+    return ("<annotation>\n  <folder>JPEGImages</folder>\n"
+            f"  <filename>{escape(name)}</filename>\n"
+            f"  <size><width>{image.width}</width><height>{image.height}</height><depth>3</depth></size>\n"
+            f"  <segmented>0</segmented>\n{''.join(objects)}</annotation>\n")
+
+
+def write_voc_zip(zf: zipfile.ZipFile, images: list[Image], labels: list[Label],
+                  annotations: dict[int, list[Annotation]], images_dir: Path) -> None:
+    """Pascal VOC layout: JPEGImages/, Annotations/<stem>.xml, ImageSets/Main/default.txt, labels.txt."""
+    by_id = {l.id: l for l in labels}
+    stems = []
+    for image in images:
+        name = export_name(image)
+        stems.append(Path(name).stem)
+        zf.write(images_dir / image.stored_name, f"JPEGImages/{name}")
+        zf.writestr(f"Annotations/{Path(name).stem}.xml",
+                    voc_xml(image, name, by_id, annotations.get(image.id, [])))  # type: ignore[arg-type]
+    zf.writestr("ImageSets/Main/default.txt", "\n".join(stems) + ("\n" if stems else ""))
+    zf.writestr("labels.txt", "\n".join(l.name for l in labels) + "\n")
 
 
 def write_images_zip(zf: zipfile.ZipFile, images: list[Image], labels: list[Label],

@@ -7,7 +7,7 @@ even when weight files are absent, e.g. on a dev machine without models.
 import threading
 
 from .. import config
-from .owl import OwlModel
+from .owl import OwlModel, OwlTextEncoder
 from .sam import SamModel
 from .yolo import YoloModel
 
@@ -20,6 +20,7 @@ _lock = threading.Lock()
 _sam: SamModel | None = None
 _yolo: YoloModel | None = None
 _owl: OwlModel | None = None
+_owl_text: OwlTextEncoder | None = None
 _errors: dict[str, str] = {}
 
 
@@ -79,10 +80,34 @@ def get_owl() -> OwlModel:
         return _owl
 
 
+def _owl_text_files_present() -> bool:
+    return config.OWL_TEXT_MODEL.is_file() and config.OWL_TOKENIZER.is_file()
+
+
+def get_owl_text() -> OwlTextEncoder:
+    global _owl_text
+    with _lock:
+        if _owl_text is None:
+            if not _owl_text_files_present():
+                raise ModelUnavailable(
+                    f"OWLv2 text files not found ({config.OWL_TEXT_MODEL.name}, {config.OWL_TOKENIZER.name} in "
+                    f"{config.MODELS_DIR}); see models/README.md"
+                )
+            try:
+                _owl_text = OwlTextEncoder(config.OWL_TEXT_MODEL, config.OWL_TOKENIZER)
+                _errors.pop("owl_text", None)
+            except Exception as exc:  # missing `tokenizers`, bad file...
+                _errors["owl_text"] = str(exc)
+                raise ModelUnavailable(f"OWLv2 text encoder failed to load: {exc}") from exc
+        return _owl_text
+
+
 def status() -> dict[str, dict]:
     sam_present = _sam_files_present()
     yolo_present = config.YOLO_MODEL.is_file()
     owl_present = config.OWL_MODEL.is_file()
+    # Find by name needs the image model too (the text only gives the query).
+    text_present = owl_present and _owl_text_files_present()
 
     def detail(name: str, present: bool, loaded: bool, files: str) -> str:
         if name in _errors:
@@ -107,5 +132,11 @@ def status() -> dict[str, dict]:
             "available": owl_present,
             "loaded": _owl is not None,
             "detail": detail("owl", owl_present, _owl is not None, config.OWL_MODEL.name),
+        },
+        "owl_text": {
+            "available": text_present,
+            "loaded": _owl_text is not None,
+            "detail": detail("owl_text", text_present, _owl_text is not None,
+                             f"{config.OWL_MODEL.name} + {config.OWL_TEXT_MODEL.name} + {config.OWL_TOKENIZER.name}"),
         },
     }

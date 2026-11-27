@@ -112,6 +112,54 @@ def detect_like(patches: dict[str, np.ndarray], query: np.ndarray, threshold: fl
     return out[:max_dets]
 
 
+TEXT_LEN = 16  # OWLv2 text encoder context length (max_position_embeddings)
+TEXT_PROMPT = "a photo of a {}"  # CLIP-style prompt, as in the OWL-ViT / Hugging Face examples
+
+
+def text_threshold(strictness: float) -> float:
+    """Score cut-off for text queries. Text-query scores are closer to probabilities than image-query
+    scores (Hugging Face post-processing defaults to 0.1), so a fixed range is used:
+    0.10 at strictness 0 (loose), 0.20 at 0.5, 0.30 at 1 (strict). Not yet tuned on real data."""
+    return 0.10 + 0.20 * float(np.clip(strictness, 0.0, 1.0))
+
+
+class OwlTextEncoder:
+    """OWLv2 text tower via ONNX Runtime: "car" -> unit query embedding (same space as class_embeds).
+
+    Tokenisation uses the CLIP tokenizer saved by models/export_owlv2.py (Hugging Face `tokenizers`).
+    """
+
+    def __init__(self, model_path: Path, tokenizer_path: Path):
+        from tokenizers import Tokenizer  # imported here: only needed when text search is used
+
+        self.session = make_session(model_path)
+        self.tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        self.tokenizer.enable_truncation(TEXT_LEN)
+        self.tokenizer.enable_padding(length=TEXT_LEN, pad_id=0, pad_token="!")  # OWL pads with "!" (id 0)
+        self._cache: OrderedDict[str, np.ndarray] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def encode(self, text: str) -> tuple[np.ndarray, float]:
+        """Unit query embedding for a class name. Returns (embedding (D,), latency_ms; 0 when cached)."""
+        key = text.strip().lower()
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key], 0.0
+        enc = self.tokenizer.encode(TEXT_PROMPT.format(key))
+        feed = {"input_ids": np.array([enc.ids], dtype=np.int64),
+                "attention_mask": np.array([enc.attention_mask], dtype=np.int64)}
+        t0 = time.perf_counter()
+        emb = np.asarray(self.session.run(None, feed)[0], dtype=np.float32).reshape(-1)
+        latency = (time.perf_counter() - t0) * 1000
+        emb = emb / (np.linalg.norm(emb) + 1e-6)
+        with self._lock:
+            self._cache[key] = emb
+            while len(self._cache) > 256:
+                self._cache.popitem(last=False)
+        return emb, latency
+
+
 class OwlModel:
     def __init__(self, model_path: Path, cache_size: int):
         self.session = make_session(model_path)

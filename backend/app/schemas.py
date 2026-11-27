@@ -178,6 +178,7 @@ class AiStatus(BaseModel):
     sam: ModelStatus
     yolo: ModelStatus
     owl: ModelStatus  # OWLv2, find alike objects
+    owl_text: ModelStatus  # OWLv2 text tower, find by name
 
 
 class SessionCreate(BaseModel):
@@ -225,6 +226,32 @@ class SimilarRequest(BaseModel):
         if self.box is None and (self.polygon is None or len(self.polygon) < 6 or len(self.polygon) % 2):
             raise ValueError("give a box or a polygon with at least 3 points")
         return self
+
+
+class NextImage(BaseModel):
+    image_id: int
+    # 0 = the AI is sure about everything it sees ... 1 = it is unsure (or sees nothing it knows)
+    uncertainty: float
+    detections: int  # boxes at score >= 0.1
+    unsure: int  # boxes with a borderline score (0.2-0.6)
+
+
+class NextImagesResponse(BaseModel):
+    images: list[NextImage]
+    ranked: int  # unlabeled images that were scored
+    latency_ms: float
+
+
+class TextSearchRequest(BaseModel):
+    """Find every object matching a typed name ("car", "helmet") in this image (OWLv2 text query).
+
+    Found objects come back (and are saved) as boxes with label_id.
+    """
+    text: str = Field(min_length=1, max_length=60)
+    label_id: int
+    # 0 = loose (more, rougher matches) ... 1 = strict (only confident matches)
+    strictness: float = Field(default=0.5, ge=0.0, le=1.0)
+    save: bool = True
 
 
 class SimilarRegion(BaseModel):

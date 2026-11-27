@@ -141,3 +141,33 @@ def test_similar_api_saves_kind_of_example_and_undo(client, monkeypatch):
 
     bad = client.post(f"/api/images/{iid}/similar", json={"source_image_id": iid, "label_id": label_id})
     assert bad.status_code == 422
+
+
+class _FakeText:
+    def encode(self, text):
+        return (BALL if "ball" in text else BAT), 1.0
+
+
+def test_text_search_api_finds_named_objects(client, monkeypatch):
+    from app.inference import registry
+
+    pid, label_id, image = _setup(client)
+    iid = image["id"]
+    body = {"text": "ball", "label_id": label_id, "strictness": 0.5}
+    assert client.post(f"/api/images/{iid}/text-search", json=body).status_code == 503  # no weights
+    assert "owl_text" in client.get("/api/ai/status").json()
+
+    monkeypatch.setattr(registry, "get_owl", lambda: _FakeOwl())
+    monkeypatch.setattr(registry, "get_owl_text", lambda: _FakeText())
+    saved = client.post(f"/api/images/{iid}/text-search", json=body).json()
+    assert len(saved["regions"]) == 2, saved  # both balls, also the one that looks different
+    anns = client.get(f"/api/images/{iid}/annotations").json()
+    assert {a["kind"] for a in anns} == {"box"} and len(anns) == 2
+    assert client.post(f"/api/images/{iid}/text-search", json=body).json()["regions"] == []  # no duplicates
+    assert client.post(f"/api/images/{iid}/text-search", json={**body, "text": "bat"}).json()["regions"] == []
+    assert client.post(f"/api/images/{iid}/text-search", json={**body, "text": ""}).status_code == 422
+
+
+def test_text_threshold_rises_with_strictness():
+    assert owl.text_threshold(0) < owl.text_threshold(0.5) < owl.text_threshold(1)
+    assert abs(owl.text_threshold(0.5) - 0.2) < 1e-9

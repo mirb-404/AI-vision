@@ -34,7 +34,7 @@ def main() -> None:
     parser.add_argument("export", help="YOLO .zip exported from the app (or an extracted folder)")
     parser.add_argument("--out", required=True, help="Output dataset folder")
     parser.add_argument("--val", type=float, default=0.15)
-    parser.add_argument("--test", type=float, default=0.15)
+    parser.add_argument("--test", type=float, default=0.15, help="0 = no test split (data-engine rounds)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--keep-empty", action="store_true", help="Keep images with no boxes as background")
     args = parser.parse_args()
@@ -66,6 +66,8 @@ def main() -> None:
     n = len(pairs)
     n_test, n_val = round(n * args.test), round(n * args.val)
     splits = {"test": pairs[:n_test], "val": pairs[n_test:n_test + n_val], "train": pairs[n_test + n_val:]}
+    if args.test == 0:  # data-engine round: every image trains, the next round is the test
+        del splits["test"]
     if min(len(v) for v in splits.values()) == 0:
         raise SystemExit(f"only {n} annotated images: too few for train/val/test. Annotate more first.")
 
@@ -81,7 +83,9 @@ def main() -> None:
                 target.write_text("")
     shutil.rmtree(work)
 
-    data = {"path": str(out), "train": "images/train", "val": "images/val", "test": "images/test", "names": names}
+    data = {"path": str(out), "train": "images/train", "val": "images/val", "names": names}
+    if "test" in splits:
+        data["test"] = "images/test"
     (out / "data.yaml").write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
     counts = ", ".join(f"{k} {len(v)}" for k, v in splits.items())
     print(f"wrote {out}/data.yaml: {counts}; skipped {skipped} images without boxes")

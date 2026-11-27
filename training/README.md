@@ -64,6 +64,31 @@ YOLO_MODEL=yolo_wildlife.onnx ./run.sh
 
 The class names travel inside the ONNX metadata, so auto-label creates the new labels by name. The default `yolo.onnx` (COCO) stays untouched.
 
+## Data engine round (does fine-tuning on your own labels help the assistant?)
+
+A small version of the SAM data engine (Kirillov et al. 2023): label, fine-tune on the corrected labels,
+label new images with the better model, compare. Use two batches of new images of similar difficulty.
+
+```bash
+# Round 0: start a labeling session named "round0" (AI-assisted), label batch A with the stock model.
+#   Tip: "Label these next" on the project page picks the images the model is least sure about.
+# Export "YOLO (.zip)" with "Only images marked done", then:
+python training/prepare_app_export.py round0_yolo.zip --out training/datasets/round0 --test 0
+python training/train.py --data training/datasets/round0/data.yaml --variant full --tag round0
+python models/export_yolo.py --weights training/runs/round0/full_s0/weights/best.pt \
+    --out models/weights/yolo_round1.onnx
+
+# Round 1: restart with the fine-tuned model, session named "round1", label batch B.
+YOLO_MODEL=yolo_round1.onnx ./run.sh
+
+# Report: download events.csv from the Effort stats page, then
+python training/data_engine.py project_1_events.csv     # writes results/data_engine.md
+```
+
+The report shows, per round: share of final objects the AI provided, accept rate, share of AI labels
+the user had to fix, objects drawn by hand, and time per image and per object. Batches differ per
+round, so state this in the report and back it with `evaluate.py` on a fixed held-out test set.
+
 ## How to verify the results
 
 - `results/<tag>/summary.md`: the main table (copy it into the report).
@@ -85,4 +110,6 @@ The class names travel inside the ONNX metadata, so auto-label creates the new l
 - Ultralytics YOLO (YOLO26 / YOLO11), AGPL-3.0: https://github.com/ultralytics/ultralytics
 - African Wildlife dataset (Ultralytics), AGPL-3.0: https://docs.ultralytics.com/datasets/detect/african-wildlife/
 - COCO metrics: pycocotools, https://github.com/cocodataset/cocoapi. Lin et al., "Microsoft COCO: Common Objects in Context", ECCV 2014.
+- Data engine: Kirillov et al., "Segment Anything", ICCV 2023 (arXiv:2304.02643).
+- Uncertainty sampling ("Label these next"): Settles, "Active Learning Literature Survey", 2009.
 - Transfer learning: Yosinski et al., "How transferable are features in deep neural networks?", NeurIPS 2014.

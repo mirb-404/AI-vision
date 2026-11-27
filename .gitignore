@@ -22,3 +22,9 @@ models/checkpoints/
 *.pth
 *.safetensors
 resume.txt
+# Private notes
+TODO.md
+rules.md
+
+# Benchmark downloads
+evaluation/datasets/

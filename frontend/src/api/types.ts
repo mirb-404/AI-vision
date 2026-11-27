@@ -101,6 +101,8 @@ export interface AiStatus {
   yolo: ModelStatus
   /** OWLv2: find every object of the same kind as a marked example. */
   owl?: ModelStatus
+  /** OWLv2 text tower: find every object matching a typed name. */
+  owl_text?: ModelStatus
 }
 
 export interface LabelingSession {
@@ -171,4 +173,41 @@ export interface SimilarRegion {
 export interface SimilarResult {
   regions: SimilarRegion[]
   latency_ms: number
+}
+
+export interface NextImage {
+  image_id: number
+  /** 0 = the AI is sure about everything it sees, 1 = unsure or sees nothing it knows. */
+  uncertainty: number
+  detections: number
+  unsure: number
+}
+
+export interface NextImagesResult {
+  images: NextImage[]
+  ranked: number
+  latency_ms: number
+}
+
+export interface ScoreCounts {
+  ai_kept: number
+  ai_fixed: number
+  ai_removed: number
+  hand: number
+  precision: number | null
+  recall: number | null
+  exact_share: number | null
+}
+
+export interface Scorecard {
+  project: string
+  images: number
+  images_scope: string
+  total: ScoreCounts
+  per_label: Record<string, ScoreCounts>
+  effort: {
+    seconds_per_object: { manual: number | null; ai: number | null }
+    speed_up_median: number | null
+    accept_rate: number | null
+  }
 }

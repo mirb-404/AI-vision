@@ -12,7 +12,7 @@ from starlette.background import BackgroundTask
 
 from .. import config
 from ..db import get_session
-from ..export.formats import write_coco_zip, write_images_zip, write_yolo_zip
+from ..export.formats import write_coco_zip, write_images_zip, write_voc_zip, write_yolo_zip
 from ..tables import Annotation, Image, Label
 from .common import project_or_404
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api", tags=["export"])
 
 
 @router.get("/projects/{project_id}/export")
-def export_project(project_id: int, format: Literal["coco", "yolo", "images"] = "coco", only_done: bool = False,
+def export_project(project_id: int, format: Literal["coco", "yolo", "voc", "images"] = "coco", only_done: bool = False,
                    db: Session = Depends(get_session)):
     project = project_or_404(db, project_id)
     query = select(Image).where(Image.project_id == project_id)
@@ -41,6 +41,8 @@ def export_project(project_id: int, format: Literal["coco", "yolo", "images"] = 
             write_coco_zip(zf, project.name, list(images), list(labels), annotations, config.IMAGES_DIR)
         elif format == "yolo":
             write_yolo_zip(zf, list(images), list(labels), annotations, config.IMAGES_DIR)
+        elif format == "voc":
+            write_voc_zip(zf, list(images), list(labels), annotations, config.IMAGES_DIR)
         else:
             write_images_zip(zf, list(images), list(labels), annotations, config.IMAGES_DIR)
 
