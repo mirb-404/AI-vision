@@ -40,6 +40,11 @@ export const api = {
   createProject: (name: string) => request<Project>('/projects', json('POST', { name })),
   getProject: (id: number) => request<Project>(`/projects/${id}`),
 
+  /** Delete all annotations (images stay); optionally the effort stats and the labels too. */
+  resetProject: (projectId: number, clearStats: boolean, removeLabels: boolean) =>
+    request<{ annotations_deleted: number; images_reset: number; events_deleted: number; labels_deleted: number }>(
+      `/projects/${projectId}/reset`, json('POST', { clear_stats: clearStats, remove_labels: removeLabels })),
+
   listLabels: (projectId: number) => request<Label[]>(`/projects/${projectId}/labels`),
   createLabel: (projectId: number, name: string, color: string) =>
     request<Label>(`/projects/${projectId}/labels`, json('POST', { name, color })),

@@ -254,9 +254,27 @@ Sources: Labelbox ontology docs; Google Research blog on Open Images V7; Scale A
 - Endpoint: `POST /api/projects/{id}/reset`.
 - Test added (31 passed). Checked in the browser on scratch data: 3 annotations removed, the image is new again, the image is kept.
 
+### Reverted: the "richer labels" layer (commit `a29ec55`)
+
+**Observed on Datalab after `a29ec55`:** the output was far worse, and many markings that the merged detector had produced disappeared.
+
+**Decision:** revert the whole layer: attributes, class hierarchy, LVIS "More kinds of things" and the per-model scorecard. Go back to the merged detector of `5f9a03c`, which gave the good, richer result. Only the "Start over" reset button is kept. It does not touch detection and was asked for separately.
+
+**Likely cause** (not confirmed on Datalab):
+1. With "More kinds of things" on, LVIS boxes go through the same cross-model merge. An LVIS box overlapping a detector box (IoU ≥ 0.7) with a higher score *replaces* it, under an LVIS name ("elephant" can become an LVIS synonym).
+2. The editor then shows only names that match the project's labels. The replaced boxes no longer match and vanish.
+
+Lesson for the report: adding a weaker open-vocabulary model *into* the merge can lower quality. More classes are not automatically better; every added source needs to be measured (scorecard, per-model numbers) before it is switched on. This supports the earlier rule "measure before adding".
+
+**State after the revert:**
+- The code is back to the merged detector, exact outlines, only-your-labels, and reset.
+- Backend tests: 26 passed. Frontend build passes.
+- The Datalab database keeps the extra `attributes` column. It is harmless: the column has a default, and the reverted code does not use it.
+- `owlv2_lvis.npz` and `class_tree.json` on Datalab are unused.
+
 ## Next
 
-1. Push. On Datalab: `git pull`, start `training/run_all.sh` in the background, then `./run.sh`. It exports `owlv2_lvis.npz` and `class_tree.json`; the database gets the new column automatically.
+1. Push. On Datalab: `git pull`, then `./run.sh`. Re-check the elephant photo: it should look like it did with `5f9a03c`.
 2. Elephant photo: compare the 80-class, 601-class and merged detectors, then switch on "More kinds of things". Check that the ✦ attributes look right (people at the image border = cut off). Save screenshots.
 3. Review 10–20 images, then send `METRICS.md` (`evaluation/collect_metrics.py`). Its "Found by model" table shows which detector earns its place.
 4. Click benchmark, user study.

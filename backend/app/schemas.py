@@ -232,6 +232,19 @@ class SimilarRequest(BaseModel):
         return self
 
 
+class ResetRequest(BaseModel):
+    """Start a project over without re-uploading: annotations go, images stay."""
+    clear_stats: bool = False  # also delete the effort log and labeling sessions
+    remove_labels: bool = False  # also delete the label classes
+
+
+class ResetResponse(BaseModel):
+    annotations_deleted: int
+    images_reset: int
+    events_deleted: int
+    labels_deleted: int
+
+
 class NextImage(BaseModel):
     image_id: int
     # 0 = the AI is sure about everything it sees ... 1 = it is unsure (or sees nothing it knows)
